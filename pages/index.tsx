@@ -1,4 +1,4 @@
-// File: pages/index.tsx
+// pages/index.tsx
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 
