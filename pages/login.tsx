@@ -1,11 +1,10 @@
 // pages/login.tsx
 import { useState } from 'react';
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import { useRouter } from 'next/router';
-import { app } from '../firebaseConfig';
+import { auth } from '../firebaseConfig';
 
 export default function Login() {
-  const auth = getAuth(app);
   const router = useRouter();
 
   const [email, setEmail] = useState('');
