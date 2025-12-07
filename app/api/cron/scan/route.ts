@@ -1,0 +1,162 @@
+// Cron job API route - runs every 10 minutes with tiered alerts
+
+import { type NextRequest, NextResponse } from "next/server"
+import { twelveDataClient } from "@/lib/api/twelve-data"
+import { tradingEngine } from "@/lib/strategy/engine"
+import type { Timeframe } from "@/lib/types/trading"
+import { sendTelegramAlert } from "@/lib/telegram/client"
+import { getGoldMarketStatus } from "@/lib/utils/market-hours"
+
+export const maxDuration = 60
+export const dynamic = "force-dynamic"
+
+// Store last alert tier to avoid duplicate alerts
+let lastAlertTier = 0
+
+function calculateAlertTier(scores: { timeframe: Timeframe; score: number }[]): number {
+  const score4h = scores.find((s) => s.timeframe === "4h")
+  const score1h = scores.find((s) => s.timeframe === "1h")
+  const score15m = scores.find((s) => s.timeframe === "15m")
+  const score5m = scores.find((s) => s.timeframe === "5m")
+
+  if (!score4h || !score1h || !score15m || !score5m) return 0
+
+  let tier = 0
+  if (score4h.score >= 3) tier++
+  if (score1h.score >= 2) tier++
+  if (score15m.score >= 1) tier++
+  if (score5m.score >= 1) tier++
+
+  return tier
+}
+
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const secret = searchParams.get("secret")
+
+  if (secret !== process.env.CRON_SECRET) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  try {
+    console.log("[v0] === CRON JOB STARTED ===")
+    console.log("[v0] Timestamp:", new Date().toISOString())
+
+    const marketStatus = getGoldMarketStatus()
+    console.log("[v0] Market status:", marketStatus.isOpen ? "OPEN" : "CLOSED")
+
+    // Fetch multi-timeframe data
+    const timeframes: Timeframe[] = ["4h", "1h", "15m", "5m"]
+    const marketData = await twelveDataClient.fetchMultipleTimeframes(timeframes)
+
+    // Get latest price
+    const currentPrice = await twelveDataClient.getLatestPrice()
+
+    console.log("[v0] Current XAUUSD price:", currentPrice)
+
+    // Analyze timeframes
+    const timeframeScores = timeframes.map((tf) => tradingEngine.analyzeTimeframe(marketData[tf], tf))
+
+    // Calculate alert tier
+    const currentTier = calculateAlertTier(timeframeScores)
+
+    console.log("[v0] Current alert tier:", currentTier)
+    console.log("[v0] Last alert tier:", lastAlertTier)
+    console.log("[v0] Scores:", timeframeScores.map((s) => `${s.timeframe}: ${s.score}/${s.maxScore}`).join(", "))
+
+    if (marketStatus.isOpen && currentTier > lastAlertTier && currentTier >= 2) {
+      console.log("[v0] Market is open and tier increased! Sending alert...")
+
+      try {
+        if (currentTier === 2) {
+          console.log("[v0] Sending GET READY alert (2/4)...")
+          await sendTelegramAlert({
+            type: "get_ready",
+            timeframeScores,
+            price: currentPrice,
+          })
+          console.log("[v0] GET READY alert sent successfully")
+        } else if (currentTier === 3) {
+          console.log("[v0] Sending LIMIT ORDER alert (3/4)...")
+          const signal = await tradingEngine.generateSignal(marketData, currentPrice)
+          if (signal) {
+            await sendTelegramAlert({
+              type: "limit_order",
+              signal,
+            })
+            console.log("[v0] LIMIT ORDER alert sent successfully")
+          } else {
+            console.log("[v0] No signal generated for limit order alert")
+          }
+        } else if (currentTier === 4) {
+          console.log("[v0] Sending ENTRY alert (4/4)...")
+          const signal = await tradingEngine.generateSignal(marketData, currentPrice)
+          if (signal) {
+            await sendTelegramAlert({
+              type: "entry",
+              signal,
+            })
+            console.log("[v0] ENTRY alert sent successfully")
+          } else {
+            console.log("[v0] No signal generated for entry alert")
+          }
+        }
+
+        lastAlertTier = currentTier
+        console.log("[v0] Alert tier updated to:", lastAlertTier)
+      } catch (telegramError) {
+        console.error("[v0] Error sending Telegram alert:", telegramError)
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Telegram error: ${telegramError instanceof Error ? telegramError.message : "Unknown"}`,
+            timestamp: new Date().toISOString(),
+          },
+          { status: 500 },
+        )
+      }
+    } else if (currentTier === lastAlertTier) {
+      console.log("[v0] Tier unchanged, no alert sent")
+    } else if (!marketStatus.isOpen) {
+      console.log("[v0] Market is closed, no alert sent")
+    } else {
+      console.log("[v0] Tier below threshold or decreased, no alert sent")
+    }
+
+    // Reset if tier drops back to 0 or 1
+    if (currentTier <= 1) {
+      console.log("[v0] Tier dropped to", currentTier, "- resetting lastAlertTier")
+      lastAlertTier = 0
+    }
+
+    console.log("[v0] === CRON JOB COMPLETED ===")
+
+    return NextResponse.json({
+      success: true,
+      currentTier,
+      lastAlertTier,
+      timeframeScores: timeframeScores.map((s) => ({
+        timeframe: s.timeframe,
+        score: s.score,
+        maxScore: s.maxScore,
+      })),
+      timestamp: new Date().toISOString(),
+    })
+  } catch (error) {
+    console.error("[v0] Cron job error:", error)
+
+    await sendTelegramAlert({
+      type: "error",
+      message: error instanceof Error ? error.message : "Unknown error",
+    })
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        timestamp: new Date().toISOString(),
+      },
+      { status: 500 },
+    )
+  }
+}
