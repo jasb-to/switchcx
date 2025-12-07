@@ -80,7 +80,25 @@ npm i -g vercel
 vercel --prod
 \`\`\`
 
-The cron job will automatically activate after deployment.
+**Note**: Since you're using an external cron service (not Vercel's built-in cron jobs), there's no `vercel.json` configuration needed. Your external cron service should hit the endpoint directly.
+
+### 5. Setup External Cron Job
+
+Since Vercel Hobby accounts are limited to daily cron jobs, use an external cron service to trigger the endpoint every 10 minutes:
+
+**Recommended Services**:
+- [cron-job.org](https://cron-job.org) - Free, reliable
+- [EasyCron](https://www.easycron.com) - Free tier available
+- [Uptime Robot](https://uptimerobot.com) - Monitors + triggers
+
+**Configuration**:
+1. Create a new cron job
+2. Set URL: `https://switchcx.vercel.app/api/cron/scan?secret=abc123xyz789`
+3. Set interval: Every 10 minutes (*/10 * * * *)
+4. Method: GET
+5. Enable the job
+
+**Your secret**: Replace `abc123xyz789` with the value from your `CRON_SECRET` environment variable.
 
 ## Deployment Readiness
 
@@ -183,14 +201,15 @@ Returns current market state and analysis:
 
 ### `/api/cron/scan` (GET)
 Cron job endpoint (secured with CRON_SECRET query parameter):
-- Runs every 10 minutes
+- Runs every 10 minutes via external cron service
 - Analyzes market conditions
 - Calculates alert tier (0-4)
-- Sends progressive Telegram alerts:
+- Sends progressive Telegram alerts (only when markets are open):
   - **2/4**: Get Ready (market building)
   - **3/4**: Limit Order (setup forming)
   - **4/4**: Enter Now (all confirmations met)
-- URL format: `/api/cron/scan?secret=abc123xyz789`
+- URL format: `/api/cron/scan?secret=your_cron_secret_here`
+- **Important**: Alerts only sent during market hours (Sunday 6pm ET - Friday 5pm ET)
 
 ### `/api/telegram/test` (GET)
 Tests Telegram integration:
@@ -316,10 +335,11 @@ The system automatically:
 - Requests spaced 2 seconds apart automatically
 
 ### Cron Job Not Running
-- Verify `vercel.json` is in project root
-- Check CRON_SECRET environment variable is set
-- Cron only works in production deployments
-- URL must use query parameter: `/api/cron/scan?secret=abc123xyz789`
+- Verify your external cron service (cron-job.org, etc.) is active
+- Check the cron job URL is correct: `https://switchcx.vercel.app/api/cron/scan?secret=YOUR_SECRET`
+- Ensure CRON_SECRET environment variable matches the secret in the URL
+- Check cron service logs for any errors or failed requests
+- The endpoint returns 401 if the secret is incorrect
 
 ### No Alerts Being Sent
 - Test Telegram first using the dashboard button
@@ -327,7 +347,8 @@ The system automatically:
 - Verify timeframe scores in dashboard (need 2/2/1/1 minimum)
 - Review logs for alert tier progression
 - 0-1/4 confirmations = no alert (by design)
-- **Alerts disabled during market closed hours (weekends)**
+- **Alerts disabled during market closed hours (Friday 5pm ET - Sunday 6pm ET)**
+- Verify external cron job is running (check cron-job.org dashboard)
 
 ### Telegram Test Button Not Working
 - Ensure TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set in environment variables

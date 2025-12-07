@@ -1,8 +1,0 @@
-{
-  "crons": [
-    {
-      "path": "/api/cron/scan?secret=abc123xyz789",
-      "schedule": "*/10 * * * *"
-    }
-  ]
-}
