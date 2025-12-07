@@ -29,7 +29,7 @@ A professional, production-ready XAUUSD (Gold) trading system featuring multi-ti
 - **Data Source**: Twelve Data API for real-time OHLCV data (uses **real live market data**)
 - **Indicators**: EMA(50/200), ADX (displayed in all timeframe cards), ATR, Chandelier Exit
 - **Breakout Detection**: Dynamic support/resistance zone clustering
-- **Volume Confirmation**: 1.5x average volume requirement
+- **Volume Confirmation**: 1.2x average volume requirement (optimized for quality + frequency)
 - **5m Confirmation**: Prevents fakeout entries
 - **Market Hours**: Tracks gold trading hours (closed Friday 5pm ET - Sunday 6pm ET)
 
@@ -63,9 +63,13 @@ CRON_SECRET=auto_generated_by_vercel
 
 #### Twelve Data API
 1. Sign up at [twelvedata.com](https://twelvedata.com)
-2. Get your free API key (800 requests/day = ~8 credits/minute)
+2. Get your free API key (800 credits/day)
 3. Add to environment variables
-4. **Note**: Free tier has 8 credits/minute limit. System automatically spaces requests 2 seconds apart and caches data for 5 minutes to stay under limit.
+4. **Optimized for Free Tier**: 
+   - Fetches 200 candles per timeframe (sufficient for all indicators)
+   - 15-minute caching reduces API calls significantly
+   - ~576 credits/day with 10-minute scans = well within 800 limit
+   - 1.5s delays between requests to avoid rate limiting
 
 #### Telegram Bot (Optional)
 See [TELEGRAM_SETUP.md](./TELEGRAM_SETUP.md) for detailed instructions.
@@ -112,9 +116,9 @@ Since Vercel Hobby accounts are limited to daily cron jobs, use an external cron
 
 ### 📊 Data Source
 The system uses **REAL LIVE DATA** from Twelve Data API:
-- Fetches 300 candles per timeframe (enough for 200-candle indicators)
+- Fetches 200 candles per timeframe (enough for 200-candle indicators)
 - Updates every 10 minutes via cron job
-- Caches for 5 minutes to reduce API calls
+- Caches for 15 minutes to reduce API calls
 - Handles rate limits automatically
 
 ### 🎯 Trade Display
@@ -136,19 +140,17 @@ New "Entry Instructions" card on dashboard provides:
 
 ### Analysis Cycle (Every 10 Minutes)
 
-1. **Data Fetching**: Pulls 300 candles for all timeframes (4H, 1H, 15m, 5m) from Twelve Data API
+1. **Data Fetching**: Pulls 200 candles for all timeframes (4H, 1H, 15m, 5m) from Twelve Data API
 2. **Trend Analysis**: Detects 4H and 1H trends using EMA crossovers (displays as bullish/bearish/ranging)
 3. **Timeframe Scoring**: Evaluates each timeframe on 5 criteria:
-   - **ADX strength** (> 15 for 1H, > 20 for others) - value shown in all cards
-   - **Volume** (1.5x above average)
+   - **ADX strength** (> 15 for 1H, > 18 for others) - value shown in all cards
+   - **Volume** (1.2x above average)
    - **EMA alignment** (50/200 positioning)
    - **Trend direction** clarity
    - **Volatility** presence
 4. **Confirmation Requirements & Alert Tiers**:
-   - 4H: 2/5 confirmations required
-   - 1H: 2/5 confirmations required
-   - 15m: 1/5 confirmations required
-   - 5m: 1/5 confirmations required
+   - **Simplified Logic**: Requires 2+ timeframes with 2+ score
+   - **Less Conservative**: Catches more valid setups without sacrificing quality
    - **0-1/4 met**: No alert (monitoring)
    - **2/4 met**: GET READY alert sent
    - **3/4 met**: LIMIT ORDER alert sent with entry zone
@@ -156,7 +158,7 @@ New "Entry Instructions" card on dashboard provides:
 5. **Breakout Detection**: Identifies key support/resistance zones
 6. **Entry Validation**:
    - Breakout confirmed on 1H timeframe
-   - Validate with volume > 1.5x average
+   - Validate with volume > 1.2x average
    - Confirm 5m candle close beyond breakout level
    - Check session (London/NY/Overlap or high volatility Asian)
    - Ensure not in chop range (ATR > 70% of average)
@@ -168,7 +170,7 @@ New "Entry Instructions" card on dashboard provides:
 \`\`\`
 IF all confirmations met:
   1. Detect breakout on 1H timeframe
-  2. Validate with volume > 1.5x average
+  2. Validate with volume > 1.2x average
   3. Confirm 5m candle close beyond breakout
   4. Check session (London/NY/Overlap or high volatility Asian)
   5. Ensure not in chop range (ATR > 70% of average)
@@ -254,12 +256,13 @@ The professional dashboard displays:
 
 ## Performance Targets
 
-The system aims for **70-80%+ win rate** through:
+The system aims for **2-5 quality signals per week** with **60-75% win rate** through:
 - Multi-timeframe confirmation reducing false signals
 - Session filtering for optimal volatility
 - Fakeout protection via 5m confirmation
 - Chop range avoidance
 - Disciplined risk management
+- **Balanced approach**: Not overly conservative, catches valid setups
 
 ## Architecture
 
@@ -322,17 +325,20 @@ The system automatically:
 ## Troubleshooting
 
 ### ADX Showing N/A
-- System needs 150+ candles minimum for ADX calculation
+- System needs 100+ candles minimum for ADX calculation
 - Wait for cron job to fetch fresh data
-- Free tier fetches 300 candles (sufficient for all indicators)
+- Free tier fetches 200 candles (sufficient for all indicators)
 - If persists, check Twelve Data API quota
 
 ### API Rate Limit Errors
-- Free tier: 8 credits/minute (~800 requests/day)
-- System fetches 4 timeframes = 4 credits, plus 1 for price = 5 total per scan
-- Cron runs every 10 minutes (6 scans/hour = 30 credits/hour, well under limit)
-- Each fetch cached for 5 minutes
-- Requests spaced 2 seconds apart automatically
+- Free tier: 800 credits/day
+- **Optimized Usage**: System uses ~576 credits/day with 10-minute scans
+- Each scan: 4 timeframes × 1 credit + 1 price = 5 credits
+- 6 scans/hour × 24 hours = 144 scans/day × 4 = 576 credits
+- **224 credits buffer** for manual dashboard refreshes
+- Each fetch cached for 15 minutes (reduced API load)
+- Requests spaced 1.5 seconds apart automatically
+- If you hit limits, increase cache time or reduce scan frequency
 
 ### Cron Job Not Running
 - Verify your external cron service (cron-job.org, etc.) is active
@@ -361,6 +367,26 @@ The system automatically:
 - Check your current timezone vs market hours (ET/UTC)
 - System continues to fetch data but won't send alerts when closed
 - Dashboard shows countdown to next market open
+
+## Signal Quality Expectations
+
+**Realistic Targets**:
+- **Signal Frequency**: 2-5 quality setups per week (not per day)
+- **Win Rate**: 60-75% (with proper execution)
+- **Risk/Reward**: 2:1 minimum (TP1), 3-4:1 potential (TP2)
+- **Strategy Type**: Breakout continuation (requires patience)
+
+**What to Expect**:
+- Most of the time you'll see tier 0-2 (no action)
+- Tier 3-4 signals should be selective but not overly rare
+- System is balanced: not too conservative, not too aggressive
+- Quality over quantity approach
+
+**Paper Trading Recommended**:
+- Track signals for 2 weeks before live trading
+- Verify win rate meets expectations
+- Adjust sensitivity if needed (ADX thresholds, volume multipliers)
+- Monitor for false breakouts in your specific market conditions
 
 ## License
 

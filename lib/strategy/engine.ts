@@ -32,7 +32,7 @@ export class TradingEngine {
   }
 
   analyzeTimeframe(candles: Candle[], timeframe: Timeframe): TimeframeScore {
-    if (candles.length < 150) {
+    if (candles.length < 100) {
       return {
         timeframe,
         score: 0,
@@ -62,8 +62,8 @@ export class TradingEngine {
 
     // Criteria checks
     const criteria = {
-      adx: !isNaN(latestADX) && latestADX > (timeframe === "1h" ? 15 : 20),
-      volume: latestVolume > avgVolume * 1.5,
+      adx: !isNaN(latestADX) && latestADX > (timeframe === "1h" ? 15 : 18),
+      volume: latestVolume > avgVolume * 1.2,
       emaAlignment: !isNaN(latestEMA50) && !isNaN(latestEMA200),
       trendDirection:
         !isNaN(latestEMA50) &&
@@ -84,7 +84,7 @@ export class TradingEngine {
   }
 
   detectTrend(candles: Candle[]): Direction {
-    if (candles.length < 150) {
+    if (candles.length < 100) {
       return "ranging"
     }
 
@@ -171,7 +171,7 @@ export class TradingEngine {
       return null
     }
 
-    // Require at least 3/4 timeframes with 2+ score or 2/4 with 3+ score
+    // Require at least 2/4 timeframes with 2+ score or 2/4 with 3+ score
     const strongConfirmations = [
       score4h.score >= 3,
       score1h.score >= 3,
@@ -185,8 +185,8 @@ export class TradingEngine {
       score5m.score >= 2,
     ].filter(Boolean).length
 
-    if (strongConfirmations < 2 && moderateConfirmations < 3) {
-      console.log("[v0] Insufficient confirmations - need 2 strong (3+) or 3 moderate (2+)", {
+    if (strongConfirmations < 2 && moderateConfirmations < 2) {
+      console.log("[v0] Insufficient confirmations - need 2+ with 2+ score", {
         score4h: score4h.score,
         score1h: score1h.score,
         score15m: score15m.score,
@@ -196,8 +196,8 @@ export class TradingEngine {
     }
 
     const isChop = this.detectChopRange(marketData["1h"])
-    if (isChop && strongConfirmations === 0) {
-      console.log("[v0] Market in chop range with no strong confirmations")
+    if (isChop && moderateConfirmations < 2) {
+      console.log("[v0] Market in chop range with insufficient confirmations")
       return null
     }
 

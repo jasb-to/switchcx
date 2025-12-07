@@ -103,7 +103,7 @@ class TwelveDataClient {
     }
   }
 
-  async fetchCandles(timeframe: Timeframe, outputSize = 300): Promise<Candle[]> {
+  async fetchCandles(timeframe: Timeframe, outputSize = 200): Promise<Candle[]> {
     return this.enqueueRequest(async () => {
       const interval = this.mapTimeframeToInterval(timeframe)
       const apiKey = this.getApiKey()
@@ -123,7 +123,7 @@ class TwelveDataClient {
           headers: {
             Accept: "application/json",
           },
-          next: { revalidate: 300 }, // Cache for 5 minutes to reduce API calls
+          next: { revalidate: 900 }, // Cache for 15 minutes to reduce API calls
         })
 
         if (!response.ok) {
@@ -157,11 +157,10 @@ class TwelveDataClient {
     for (const timeframe of timeframes) {
       try {
         console.log("[v0] Fetching", timeframe, "data...")
-        results[timeframe] = await this.fetchCandles(timeframe, 300)
+        results[timeframe] = await this.fetchCandles(timeframe, 200)
         console.log("[v0] Successfully fetched", results[timeframe].length, "candles for", timeframe)
 
-        // Wait 2 seconds between requests to stay under rate limit
-        await new Promise((resolve) => setTimeout(resolve, 2000))
+        await new Promise((resolve) => setTimeout(resolve, 1500)) // Reduced delay from 2s to 1.5s for slightly faster fetches
       } catch (error) {
         console.error(`[v0] Failed to fetch ${timeframe} data:`, error)
         results[timeframe] = []
