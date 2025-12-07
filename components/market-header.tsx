@@ -78,7 +78,9 @@ export function MarketHeader({
         {/* Price Section */}
         <div>
           <div className="text-sm text-muted-foreground mb-1">XAU/USD</div>
-          <div className="text-4xl font-bold text-primary">${currentPrice.toFixed(2)}</div>
+          <div className="text-4xl font-bold text-primary">
+            {currentPrice > 0 ? `$${currentPrice.toFixed(2)}` : "—"}
+          </div>
           {/* Market Status Indicator */}
           <div className="flex items-center gap-2 mt-2">
             <Clock className="h-3.5 w-3.5 text-muted-foreground" />

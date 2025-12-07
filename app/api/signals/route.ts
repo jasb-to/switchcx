@@ -3,7 +3,7 @@ import { twelveDataClient } from "@/lib/api/twelve-data"
 import { tradingEngine } from "@/lib/strategy/engine"
 import { getCurrentSession } from "@/lib/strategy/session-filter"
 import { sendTelegramAlert } from "@/lib/telegram/client"
-import type { Timeframe } from "@/lib/types/trading"
+import type { Timeframe, Direction } from "@/lib/types/trading"
 import { getGoldMarketStatus, formatMarketHours } from "@/lib/utils/market-hours"
 
 export const dynamic = "force-dynamic"
@@ -108,12 +108,80 @@ export async function GET() {
 
     console.log("[v0] Market status:", marketStatus.isOpen ? "OPEN" : "CLOSED")
 
-    const timeframes: Timeframe[] = ["4h", "1h", "15m", "5m"]
-    const marketData = await twelveDataClient.fetchMultipleTimeframes(timeframes)
+    let marketData: Record<Timeframe, any[]> = {
+      "4h": [],
+      "1h": [],
+      "15m": [],
+      "5m": [],
+    }
+    let currentPrice = 0
+    let apiError = null
 
-    const currentPrice = await twelveDataClient.getLatestPrice()
+    try {
+      const timeframes: Timeframe[] = ["4h", "1h", "15m", "5m"]
+      marketData = await twelveDataClient.fetchMultipleTimeframes(timeframes)
+      currentPrice = await twelveDataClient.getLatestPrice()
+    } catch (apiCallError) {
+      console.error("[v0] API call failed:", apiCallError)
+      apiError = apiCallError instanceof Error ? apiCallError.message : "API unavailable"
 
-    const timeframeScores = timeframes.map((tf) => tradingEngine.analyzeTimeframe(marketData[tf], tf))
+      // Return a safe response when API fails
+      return NextResponse.json({
+        success: true,
+        data: {
+          currentPrice: 0,
+          currentSession: getCurrentSession(),
+          trend4h: "ranging" as Direction,
+          trend1h: "ranging" as Direction,
+          isChopRange: true,
+          volatility: {
+            atr: 0,
+            rangeExpansion: false,
+            rangeCompression: false,
+            volatilityScore: 0,
+          },
+          timeframeScores: [
+            {
+              timeframe: "4h",
+              score: 0,
+              maxScore: 5,
+              criteria: { adx: false, volume: false, emaAlignment: false, trendDirection: false, volatility: false },
+              adxValue: 0,
+            },
+            {
+              timeframe: "1h",
+              score: 0,
+              maxScore: 5,
+              criteria: { adx: false, volume: false, emaAlignment: false, trendDirection: false, volatility: false },
+              adxValue: 0,
+            },
+            {
+              timeframe: "15m",
+              score: 0,
+              maxScore: 5,
+              criteria: { adx: false, volume: false, emaAlignment: false, trendDirection: false, volatility: false },
+              adxValue: 0,
+            },
+            {
+              timeframe: "5m",
+              score: 0,
+              maxScore: 5,
+              criteria: { adx: false, volume: false, emaAlignment: false, trendDirection: false, volatility: false },
+              adxValue: 0,
+            },
+          ],
+          confirmationTier: 0,
+          activeSignal: null,
+          isMarketOpen: marketStatus.isOpen,
+          marketStatusMessage: apiError ? `API Error: ${apiError}` : marketStatusMessage,
+          lastUpdate: Date.now(),
+        },
+      })
+    }
+
+    const timeframeScores = Object.keys(marketData).map((tf) =>
+      tradingEngine.analyzeTimeframe(marketData[tf as Timeframe], tf as Timeframe),
+    )
 
     const trend4h = tradingEngine.detectTrend(marketData["4h"])
     const trend1h = tradingEngine.detectTrend(marketData["1h"])
@@ -223,18 +291,62 @@ export async function GET() {
         confirmationTier,
         activeSignal,
         isMarketOpen: marketStatus.isOpen,
-        marketStatusMessage,
+        marketStatusMessage: apiError ? `API Error: ${apiError}` : marketStatusMessage,
         lastUpdate: Date.now(),
       },
     })
   } catch (error) {
     console.error("[v0] Error fetching signals:", error)
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
+    return NextResponse.json({
+      success: true,
+      data: {
+        currentPrice: 0,
+        currentSession: getCurrentSession(),
+        trend4h: "ranging" as Direction,
+        trend1h: "ranging" as Direction,
+        isChopRange: true,
+        volatility: {
+          atr: 0,
+          rangeExpansion: false,
+          rangeCompression: false,
+          volatilityScore: 0,
+        },
+        timeframeScores: [
+          {
+            timeframe: "4h",
+            score: 0,
+            maxScore: 5,
+            criteria: { adx: false, volume: false, emaAlignment: false, trendDirection: false, volatility: false },
+            adxValue: 0,
+          },
+          {
+            timeframe: "1h",
+            score: 0,
+            maxScore: 5,
+            criteria: { adx: false, volume: false, emaAlignment: false, trendDirection: false, volatility: false },
+            adxValue: 0,
+          },
+          {
+            timeframe: "15m",
+            score: 0,
+            maxScore: 5,
+            criteria: { adx: false, volume: false, emaAlignment: false, trendDirection: false, volatility: false },
+            adxValue: 0,
+          },
+          {
+            timeframe: "5m",
+            score: 0,
+            maxScore: 5,
+            criteria: { adx: false, volume: false, emaAlignment: false, trendDirection: false, volatility: false },
+            adxValue: 0,
+          },
+        ],
+        confirmationTier: 0,
+        activeSignal: null,
+        isMarketOpen: false,
+        marketStatusMessage: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        lastUpdate: Date.now(),
       },
-      { status: 500 },
-    )
+    })
   }
 }
