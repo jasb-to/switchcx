@@ -3,7 +3,7 @@
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { CheckCircle2, AlertCircle, XCircle } from "lucide-react"
+import { CheckCircle2, AlertCircle, XCircle, TrendingUp, TrendingDown, Minus } from "lucide-react"
 import type { TimeframeScore } from "@/lib/types/trading"
 
 interface TimeframeScoreboardProps {
@@ -44,6 +44,35 @@ export function TimeframeScoreboard({ scores }: TimeframeScoreboardProps) {
     return requirements[timeframe] || 0
   }
 
+  const getTrendBadge = (trend?: string) => {
+    if (!trend) return null
+
+    if (trend === "bullish") {
+      return (
+        <Badge className="bg-success text-success-foreground flex items-center gap-1">
+          <TrendingUp className="h-3 w-3" />
+          Bullish
+        </Badge>
+      )
+    }
+
+    if (trend === "bearish") {
+      return (
+        <Badge className="bg-destructive text-destructive-foreground flex items-center gap-1">
+          <TrendingDown className="h-3 w-3" />
+          Bearish
+        </Badge>
+      )
+    }
+
+    return (
+      <Badge variant="outline" className="flex items-center gap-1 border-muted-foreground/30">
+        <Minus className="h-3 w-3" />
+        Ranging
+      </Badge>
+    )
+  }
+
   return (
     <Card className="p-6 border-border">
       <div className="flex items-center justify-between mb-6">
@@ -68,6 +97,8 @@ export function TimeframeScoreboard({ scores }: TimeframeScoreboardProps) {
                   {score.score}/{score.maxScore}
                 </div>
               </div>
+
+              <div className="mb-3 flex justify-center">{getTrendBadge(score.trendDirection)}</div>
 
               <Progress value={percentage} className="h-2 mb-3" />
 

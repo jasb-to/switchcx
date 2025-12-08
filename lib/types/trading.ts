@@ -54,6 +54,7 @@ export interface TimeframeScore {
     volatility: boolean
   }
   adxValue?: number
+  trendDirection?: Direction
 }
 
 export interface TradingSignal {

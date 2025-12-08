@@ -123,6 +123,11 @@ export async function GET() {
       tradingEngine.analyzeTimeframe(marketData[tf as Timeframe], tf as Timeframe),
     )
 
+    const enhancedTimeframeScores = timeframeScores.map((score) => ({
+      ...score,
+      trendDirection: tradingEngine.detectTrend(marketData[score.timeframe]),
+    }))
+
     const trend4h = tradingEngine.detectTrend(marketData["4h"])
     const trend1h = tradingEngine.detectTrend(marketData["1h"])
 
@@ -130,7 +135,7 @@ export async function GET() {
     const volatility = tradingEngine.calculateVolatilityMetrics(marketData["1h"])
     const currentSession = getCurrentSession()
 
-    const confirmationTier = calculateConfirmationTier(timeframeScores)
+    const confirmationTier = calculateConfirmationTier(enhancedTimeframeScores)
 
     console.log("[v0] Confirmation tier:", confirmationTier)
     console.log("[v0] Trends - 4h:", trend4h, "1h:", trend1h)
@@ -148,7 +153,7 @@ export async function GET() {
       activeSignal = await tradingEngine.generateSignal(marketData, currentPrice)
 
       if (activeSignal) {
-        signalConfidence = calculateSignalConfidence(activeSignal, marketContext, timeframeScores)
+        signalConfidence = calculateSignalConfidence(activeSignal, marketContext, enhancedTimeframeScores)
         console.log(
           "[v0] Signal confidence:",
           signalConfidence.score,
@@ -179,7 +184,7 @@ export async function GET() {
         trend1h,
         isChopRange,
         volatility,
-        timeframeScores,
+        timeframeScores: enhancedTimeframeScores,
         confirmationTier,
         activeSignal,
         rejectionReason,
