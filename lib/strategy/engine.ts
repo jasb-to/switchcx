@@ -30,6 +30,8 @@ export class TradingEngine {
     isLockedOut: false,
     currentSessionTrades: 0,
   }
+  private lastStopLossTimestamp = 0
+  private readonly cooldownPeriodMs = 2 * 60 * 60 * 1000 // 2 hours cooldown after stop loss
 
   analyzeTimeframe(candles: Candle[], timeframe: Timeframe): TimeframeScore {
     if (candles.length < 100) {
@@ -154,6 +156,13 @@ export class TradingEngine {
       return null
     }
 
+    const now = Date.now()
+    if (this.lastStopLossTimestamp > 0 && now - this.lastStopLossTimestamp < this.cooldownPeriodMs) {
+      const remainingMinutes = Math.ceil((this.cooldownPeriodMs - (now - this.lastStopLossTimestamp)) / (60 * 1000))
+      console.log(`[v0] In cooldown period. ${remainingMinutes} minutes remaining after last stop loss`)
+      return null
+    }
+
     // Get session
     const session = getCurrentSession()
 
@@ -168,6 +177,14 @@ export class TradingEngine {
 
     if (!score4h || !score1h || !score15m || !score5m) {
       console.log("[v0] Missing timeframe analysis")
+      return null
+    }
+
+    const trend4h = this.detectTrend(marketData["4h"])
+    const trend1h = this.detectTrend(marketData["1h"])
+
+    if (trend4h !== trend1h || trend4h === "ranging" || trend1h === "ranging") {
+      console.log("[v0] Higher timeframe alignment required - 4H:", trend4h, "1H:", trend1h)
       return null
     }
 
@@ -210,7 +227,6 @@ export class TradingEngine {
       return null
     }
 
-    // Detect breakout
     const zones = detectBreakoutZones(marketData["1h"])
     console.log("[v0] Detected zones:", zones.length)
 
@@ -218,7 +234,19 @@ export class TradingEngine {
     console.log("[v0] Breakout check result:", breakout)
 
     if (!breakout.isBreakout || !breakout.zone) {
-      console.log("[v0] No breakout detected")
+      console.log("[v0] No confirmed breakout detected - signal rejected")
+      return null
+    }
+
+    if (breakout.direction !== trend4h || breakout.direction !== trend1h) {
+      console.log(
+        "[v0] Breakout direction conflicts with higher timeframes - 4H:",
+        trend4h,
+        "1H:",
+        trend1h,
+        "Breakout:",
+        breakout.direction,
+      )
       return null
     }
 
@@ -247,6 +275,11 @@ export class TradingEngine {
         ? chandelier.stopLong[chandelier.stopLong.length - 1]
         : chandelier.stopShort[chandelier.stopShort.length - 1]
 
+    // Calculate TP1 (2R) and TP2 (3R)
+    const riskAmount = Math.abs(currentPrice - chandelierStop)
+    const tp1 = breakout.direction === "bullish" ? currentPrice + riskAmount * 2 : currentPrice - riskAmount * 2
+    const tp2 = breakout.direction === "bullish" ? currentPrice + riskAmount * 3 : currentPrice - riskAmount * 3
+
     // Generate signal
     const signal: TradingSignal = {
       id: `signal_${Date.now()}`,
@@ -254,6 +287,9 @@ export class TradingEngine {
       direction: breakout.direction,
       entryPrice: currentPrice,
       stopLoss: chandelierStop,
+      takeProfit: tp1,
+      tp1,
+      tp2,
       chandelierStop,
       status: "active",
       breakoutZone: breakout.zone,
@@ -266,6 +302,11 @@ export class TradingEngine {
 
     console.log("[v0] Signal generated successfully:", signal)
     return signal
+  }
+
+  recordStopLoss(): void {
+    this.lastStopLossTimestamp = Date.now()
+    console.log("[v0] Stop loss recorded - 2 hour cooldown period started")
   }
 
   updateRiskManagement(signalClosed: TradingSignal): void {

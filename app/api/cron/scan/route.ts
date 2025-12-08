@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic"
 
 // Store last alert tier to avoid duplicate alerts
 let lastAlertTier = 0
+let lastActiveSignal: any | null = null
 
 function calculateAlertTier(scores: { timeframe: Timeframe; score: number }[]): number {
   const score4h = scores.find((s) => s.timeframe === "4h")
@@ -64,6 +65,60 @@ export async function GET(request: NextRequest) {
     console.log("[v0] Last alert tier:", lastAlertTier)
     console.log("[v0] Scores:", timeframeScores.map((s) => `${s.timeframe}: ${s.score}/${s.maxScore}`).join(", "))
 
+    if (lastActiveSignal) {
+      const trend1h = tradingEngine.detectTrend(marketData["1h"])
+      const trend5m = tradingEngine.detectTrend(marketData["5m"])
+
+      const riskAmount = Math.abs(lastActiveSignal.entryPrice - lastActiveSignal.stopLoss)
+      const currentRisk =
+        lastActiveSignal.direction === "bullish"
+          ? lastActiveSignal.entryPrice - currentPrice
+          : currentPrice - lastActiveSignal.entryPrice
+
+      const riskPercentage = (currentRisk / riskAmount) * 100
+
+      const priceNearStop = riskPercentage >= 70
+      const priceHitStop =
+        (lastActiveSignal.direction === "bullish" && currentPrice <= lastActiveSignal.stopLoss) ||
+        (lastActiveSignal.direction === "bearish" && currentPrice >= lastActiveSignal.stopLoss)
+
+      const trendReversed =
+        (lastActiveSignal.direction === "bullish" && trend1h === "bearish") ||
+        (lastActiveSignal.direction === "bearish" && trend1h === "bullish")
+
+      const shortTermReversal =
+        (lastActiveSignal.direction === "bullish" && trend5m === "bearish") ||
+        (lastActiveSignal.direction === "bearish" && trend5m === "bullish")
+
+      if (priceHitStop || priceNearStop || trendReversed || (shortTermReversal && riskPercentage >= 50)) {
+        console.log("[v0] ⚠️ REVERSAL DETECTED IN CRON!")
+
+        if (marketStatus.isOpen) {
+          let reversalReason = ""
+          if (priceHitStop) {
+            reversalReason = `🛑 STOP LOSS HIT! Current: $${currentPrice.toFixed(2)}, Stop: $${lastActiveSignal.stopLoss.toFixed(2)}`
+          } else if (priceNearStop) {
+            reversalReason = `⚠️ DANGER ZONE! Price is ${riskPercentage.toFixed(0)}% towards stop loss ($${lastActiveSignal.stopLoss.toFixed(2)})`
+          } else if (trendReversed) {
+            reversalReason = `📉 1H TREND REVERSED! Now ${trend1h.toUpperCase()}`
+          } else {
+            reversalReason = `⚡ 5M TREND REVERSED! Price ${riskPercentage.toFixed(0)}% towards stop`
+          }
+
+          await sendTelegramAlert({
+            type: "reversal",
+            signal: lastActiveSignal,
+            message: reversalReason,
+            price: currentPrice,
+          })
+
+          console.log("[v0] ✅ REVERSAL alert sent from cron")
+          lastActiveSignal = null
+          lastAlertTier = 0
+        }
+      }
+    }
+
     if (marketStatus.isOpen && currentTier > lastAlertTier && currentTier >= 2) {
       console.log("[v0] Market is open and tier increased! Sending alert...")
 
@@ -85,6 +140,7 @@ export async function GET(request: NextRequest) {
               signal,
             })
             console.log("[v0] LIMIT ORDER alert sent successfully")
+            lastActiveSignal = signal
           } else {
             console.log("[v0] No signal generated for limit order alert")
           }
@@ -97,6 +153,7 @@ export async function GET(request: NextRequest) {
               signal,
             })
             console.log("[v0] ENTRY alert sent successfully")
+            lastActiveSignal = signal
           } else {
             console.log("[v0] No signal generated for entry alert")
           }

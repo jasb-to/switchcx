@@ -206,12 +206,14 @@ Cron job endpoint (secured with CRON_SECRET query parameter):
 - Runs every 10 minutes via external cron service
 - Analyzes market conditions
 - Calculates alert tier (0-4)
+- **ONLY SOURCE OF TELEGRAM ALERTS** - Dashboard does NOT send alerts
 - Sends progressive Telegram alerts (only when markets are open):
   - **2/4**: Get Ready (market building)
   - **3/4**: Limit Order (setup forming)
   - **4/4**: Enter Now (all confirmations met)
 - URL format: `/api/cron/scan?secret=your_cron_secret_here`
 - **Important**: Alerts only sent during market hours (Sunday 6pm ET - Friday 5pm ET)
+- **Note**: Browser refreshes do NOT trigger alerts - only automated cron scans do
 
 ### `/api/telegram/test` (GET)
 Tests Telegram integration:
@@ -348,13 +350,15 @@ The system automatically:
 - The endpoint returns 401 if the secret is incorrect
 
 ### No Alerts Being Sent
+- **Alerts are ONLY sent from the cron job** - refreshing the dashboard does NOT send alerts
+- Verify your external cron service (cron-job.org) is running every 10 minutes
 - Test Telegram first using the dashboard button
 - Check that 2/4, 3/4, or 4/4 confirmations are being met
 - Verify timeframe scores in dashboard (need 2/2/1/1 minimum)
 - Review logs for alert tier progression
 - 0-1/4 confirmations = no alert (by design)
 - **Alerts disabled during market closed hours (Friday 5pm ET - Sunday 6pm ET)**
-- Verify external cron job is running (check cron-job.org dashboard)
+- Check cron job logs at your external cron service dashboard
 
 ### Telegram Test Button Not Working
 - Ensure TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set in environment variables
