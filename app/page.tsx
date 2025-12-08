@@ -41,6 +41,8 @@ interface MarketData {
   signalConfidence?: SignalConfidence
   marketContext?: MarketContext
   performanceMetrics?: PerformanceMetrics
+  newsFilterActive?: boolean
+  newsFilterReason?: string | null
 }
 
 export default function HomePage() {
@@ -168,6 +170,8 @@ export default function HomePage() {
           confirmationTier={marketData.confirmationTier}
           isMarketOpen={marketData.isMarketOpen}
           marketStatusMessage={marketData.marketStatusMessage}
+          newsFilterActive={marketData.newsFilterActive}
+          newsFilterReason={marketData.newsFilterReason}
         />
 
         {/* Signal Confidence Badge */}

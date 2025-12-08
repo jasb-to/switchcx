@@ -15,6 +15,8 @@ interface MarketHeaderProps {
   confirmationTier: number
   isMarketOpen: boolean
   marketStatusMessage: string
+  newsFilterActive?: boolean
+  newsFilterReason?: string | null
 }
 
 export function MarketHeader({
@@ -27,6 +29,8 @@ export function MarketHeader({
   confirmationTier,
   isMarketOpen,
   marketStatusMessage,
+  newsFilterActive,
+  newsFilterReason,
 }: MarketHeaderProps) {
   const getTrendIcon = (trend: Direction) => {
     if (trend === "bullish") return <TrendingUp className="h-4 w-4" />
@@ -74,6 +78,18 @@ export function MarketHeader({
 
   return (
     <Card className="p-6 border-border">
+      {newsFilterActive && newsFilterReason && (
+        <div className="mb-4 p-3 bg-destructive/10 border border-destructive rounded-lg">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🚫</span>
+            <div>
+              <div className="font-semibold text-destructive text-sm">Trading Suspended</div>
+              <div className="text-xs text-destructive/80">{newsFilterReason}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
         {/* Price Section */}
         <div>

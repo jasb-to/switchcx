@@ -4,7 +4,7 @@ import { tradingEngine } from "@/lib/strategy/engine"
 import { getCurrentSession } from "@/lib/strategy/session-filter"
 import type { Timeframe, Direction } from "@/lib/types/trading"
 import { getGoldMarketStatus, formatMarketHours } from "@/lib/utils/market-hours"
-import { getMarketContext } from "@/lib/market-context/intelligence"
+import { getMarketContext, shouldAvoidTrading } from "@/lib/market-context/intelligence"
 import { calculateSignalConfidence } from "@/lib/strategy/confidence-scorer"
 import { tradeHistoryManager } from "@/lib/database/trade-history"
 
@@ -36,6 +36,11 @@ export async function GET() {
     const marketStatusMessage = formatMarketHours(marketStatus)
 
     const marketContext = await getMarketContext()
+    const tradingRestriction = shouldAvoidTrading(marketContext)
+
+    if (tradingRestriction.avoid) {
+      console.log("[v0] Trading blocked due to news:", tradingRestriction.reason)
+    }
 
     let marketData: Record<Timeframe, any[]> = {
       "4h": [],
@@ -107,6 +112,8 @@ export async function GET() {
           performanceMetrics: null,
           isMarketOpen: marketStatus.isOpen,
           marketStatusMessage: apiError ? `API Error: ${apiError}` : marketStatusMessage,
+          newsFilterActive: tradingRestriction.avoid,
+          newsFilterReason: tradingRestriction.reason,
           lastUpdate: Date.now(),
         },
       })
@@ -134,7 +141,9 @@ export async function GET() {
     let rejectionReason = null
     let signalConfidence = null
 
-    if (confirmationTier >= 3 && higherTimeframeAligned) {
+    if (tradingRestriction.avoid) {
+      rejectionReason = `Trading suspended: ${tradingRestriction.reason}`
+    } else if (confirmationTier >= 3 && higherTimeframeAligned) {
       console.log("[v0] Attempting to generate signal for dashboard display...")
       activeSignal = await tradingEngine.generateSignal(marketData, currentPrice)
 
@@ -179,6 +188,8 @@ export async function GET() {
         performanceMetrics,
         isMarketOpen: marketStatus.isOpen,
         marketStatusMessage: apiError ? `API Error: ${apiError}` : marketStatusMessage,
+        newsFilterActive: tradingRestriction.avoid,
+        newsFilterReason: tradingRestriction.reason,
         lastUpdate: Date.now(),
       },
     })
@@ -236,6 +247,8 @@ export async function GET() {
         performanceMetrics: null,
         isMarketOpen: false,
         marketStatusMessage: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        newsFilterActive: false,
+        newsFilterReason: null,
         lastUpdate: Date.now(),
       },
     })

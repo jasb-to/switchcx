@@ -6,6 +6,7 @@ import { tradingEngine } from "@/lib/strategy/engine"
 import type { Timeframe } from "@/lib/types/trading"
 import { sendTelegramAlert } from "@/lib/telegram/client"
 import { getGoldMarketStatus } from "@/lib/utils/market-hours"
+import { getMarketContext, shouldAvoidTrading } from "@/lib/market-context/intelligence"
 
 export const maxDuration = 60
 export const dynamic = "force-dynamic"
@@ -45,6 +46,28 @@ export async function GET(request: NextRequest) {
 
     const marketStatus = getGoldMarketStatus()
     console.log("[v0] Market status:", marketStatus.isOpen ? "OPEN" : "CLOSED")
+
+    const marketContext = await getMarketContext()
+    const tradingRestriction = shouldAvoidTrading(marketContext)
+
+    if (tradingRestriction.avoid) {
+      console.log("[v0] 🚫 Trading blocked:", tradingRestriction.reason)
+
+      // Send notification about trading restriction
+      if (marketStatus.isOpen) {
+        await sendTelegramAlert({
+          type: "status",
+          message: `⚠️ Trading suspended: ${tradingRestriction.reason}\n\nThe system will resume normal operation once the event passes.`,
+        })
+      }
+
+      return NextResponse.json({
+        success: true,
+        blocked: true,
+        reason: tradingRestriction.reason,
+        timestamp: new Date().toISOString(),
+      })
+    }
 
     // Fetch multi-timeframe data
     const timeframes: Timeframe[] = ["4h", "1h", "15m", "5m"]
