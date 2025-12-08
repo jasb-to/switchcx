@@ -29,13 +29,42 @@ class TwelveDataClient {
   private isProcessing = false
   private lastRequestTime = 0
   private readonly minRequestInterval = 1000 // 1 second between requests
+  private currentKeyIndex = 0
 
-  private getApiKey(): string {
-    const apiKey = process.env.TWELVE_DATA_API_KEY
-    if (!apiKey) {
-      throw new Error("TWELVE_DATA_API_KEY environment variable is not set")
+  private getApiKeys(): string[] {
+    const keys = []
+
+    // Primary key
+    if (process.env.TWELVE_DATA_API_KEY) {
+      keys.push(process.env.TWELVE_DATA_API_KEY)
     }
-    return apiKey
+
+    // Secondary key
+    if (process.env.TWELVE_DATA_API_KEY_2) {
+      keys.push(process.env.TWELVE_DATA_API_KEY_2)
+    }
+
+    // Additional keys (support up to 5)
+    if (process.env.TWELVE_DATA_API_KEY_3) {
+      keys.push(process.env.TWELVE_DATA_API_KEY_3)
+    }
+
+    if (keys.length === 0) {
+      throw new Error("At least one TWELVE_DATA_API_KEY environment variable is required")
+    }
+
+    console.log(`[v0] Loaded ${keys.length} Twelve Data API key(s)`)
+    return keys
+  }
+
+  private getNextApiKey(): string {
+    const keys = this.getApiKeys()
+    const key = keys[this.currentKeyIndex]
+
+    // Rotate to next key for next request
+    this.currentKeyIndex = (this.currentKeyIndex + 1) % keys.length
+
+    return key
   }
 
   private async throttle(): Promise<void> {
@@ -106,7 +135,7 @@ class TwelveDataClient {
   async fetchCandles(timeframe: Timeframe, outputSize = 200): Promise<Candle[]> {
     return this.enqueueRequest(async () => {
       const interval = this.mapTimeframeToInterval(timeframe)
-      const apiKey = this.getApiKey()
+      const apiKey = this.getNextApiKey()
 
       const url = new URL(`${this.baseUrl}/time_series`)
       url.searchParams.append("symbol", this.symbol)
@@ -172,7 +201,7 @@ class TwelveDataClient {
 
   async getLatestPrice(): Promise<number> {
     return this.enqueueRequest(async () => {
-      const apiKey = this.getApiKey()
+      const apiKey = this.getNextApiKey()
 
       const url = new URL(`${this.baseUrl}/price`)
       url.searchParams.append("symbol", this.symbol)
