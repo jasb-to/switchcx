@@ -6,8 +6,18 @@ import { MarketHeader } from "@/components/market-header"
 import { TimeframeScoreboard } from "@/components/timeframe-scoreboard"
 import { ActiveTradeCard } from "@/components/active-trade-card"
 import { EntryInstructionsCard } from "@/components/entry-instructions-card"
+import { PerformanceAnalytics } from "@/components/performance-analytics"
+import { SignalConfidenceBadge } from "@/components/signal-confidence-badge"
 import { RefreshCw, Send } from "lucide-react"
-import type { Direction, TradingSession, TimeframeScore, TradingSignal } from "@/lib/types/trading"
+import type {
+  Direction,
+  TradingSession,
+  TimeframeScore,
+  TradingSignal,
+  PerformanceMetrics,
+  SignalConfidence,
+  MarketContext,
+} from "@/lib/types/trading"
 
 interface MarketData {
   currentPrice: number
@@ -28,6 +38,9 @@ interface MarketData {
   rejectionReason?: string
   isMarketOpen: boolean
   marketStatusMessage: string
+  signalConfidence?: SignalConfidence
+  marketContext?: MarketContext
+  performanceMetrics?: PerformanceMetrics
 }
 
 export default function HomePage() {
@@ -157,8 +170,21 @@ export default function HomePage() {
           marketStatusMessage={marketData.marketStatusMessage}
         />
 
+        {/* Signal Confidence Badge */}
+        {marketData.activeSignal && marketData.signalConfidence && (
+          <div className="flex items-center justify-center gap-4">
+            <span className="text-sm text-muted-foreground">Signal Quality:</span>
+            <SignalConfidenceBadge confidence={marketData.signalConfidence} showDetails />
+          </div>
+        )}
+
         {/* Timeframe Scoreboard */}
         <TimeframeScoreboard scores={marketData.timeframeScores} />
+
+        {/* Performance Analytics */}
+        {marketData.performanceMetrics && marketData.performanceMetrics.totalTrades > 0 && (
+          <PerformanceAnalytics metrics={marketData.performanceMetrics} />
+        )}
 
         {/* Active Trade and Entry Instructions cards */}
         <div className="grid gap-6 lg:grid-cols-2">
@@ -178,6 +204,10 @@ export default function HomePage() {
           </p>
           <p className="mt-1 text-xs">
             Alert Tiers: 0-1/4 (None) • 2/4 (Get Ready) • 3/4 (Limit Order) • 4/4 (Enter Now)
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            🚀 Features: Performance Tracking • AI Confidence Scoring • Market Context Intelligence • Advanced Trade
+            Management
           </p>
         </div>
       </main>

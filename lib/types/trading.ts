@@ -100,3 +100,74 @@ export interface MarketState {
   activeSignal?: TradingSignal
   lastUpdate: number
 }
+
+export interface TradeHistory {
+  id: string
+  signal: TradingSignal
+  entryTime: number
+  entryPrice: number
+  exitTime?: number
+  exitPrice?: number
+  exitReason?: "tp1" | "tp2" | "stop_loss" | "reversal" | "manual" | "chandelier"
+  pnl?: number
+  pnlPercent?: number
+  rMultiple?: number
+  duration?: number
+  maxDrawdown?: number
+  maxProfit?: number
+}
+
+export interface PerformanceMetrics {
+  totalTrades: number
+  winningTrades: number
+  losingTrades: number
+  winRate: number
+  avgWin: number
+  avgLoss: number
+  profitFactor: number
+  avgRMultiple: number
+  maxDrawdown: number
+  totalPnl: number
+  bestTrade: number
+  worstTrade: number
+  avgHoldTime: number
+  sharpeRatio: number
+}
+
+export interface MarketContext {
+  dxyStrength: "strong_bullish" | "bullish" | "neutral" | "bearish" | "strong_bearish"
+  economicEvents: EconomicEvent[]
+  correlationScore: number
+  volatilityRegime: "low" | "normal" | "high" | "extreme"
+  confidenceAdjustment: number
+}
+
+export interface EconomicEvent {
+  time: string
+  currency: string
+  event: string
+  impact: "low" | "medium" | "high"
+  forecast?: string
+  previous?: string
+}
+
+export interface SignalConfidence {
+  score: number
+  factors: {
+    breakoutQuality: number
+    volumeSurge: number
+    timeframeAlignment: number
+    marketContext: number
+    historicalSuccess: number
+  }
+  recommendation: "strong_buy" | "buy" | "hold" | "avoid"
+}
+
+export interface TradeManagement {
+  tp1Hit: boolean
+  tp2Hit: boolean
+  breakEvenSet: boolean
+  trailingStopActive: boolean
+  partialCloseAt: number[]
+  currentStopLoss: number
+}

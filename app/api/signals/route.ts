@@ -4,6 +4,9 @@ import { tradingEngine } from "@/lib/strategy/engine"
 import { getCurrentSession } from "@/lib/strategy/session-filter"
 import type { Timeframe, Direction } from "@/lib/types/trading"
 import { getGoldMarketStatus, formatMarketHours } from "@/lib/utils/market-hours"
+import { getMarketContext } from "@/lib/market-context/intelligence"
+import { calculateSignalConfidence } from "@/lib/strategy/confidence-scorer"
+import { tradeHistoryManager } from "@/lib/database/trade-history"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -31,6 +34,8 @@ export async function GET() {
 
     const marketStatus = getGoldMarketStatus()
     const marketStatusMessage = formatMarketHours(marketStatus)
+
+    const marketContext = await getMarketContext()
 
     let marketData: Record<Timeframe, any[]> = {
       "4h": [],
@@ -96,6 +101,10 @@ export async function GET() {
           ],
           confirmationTier: 0,
           activeSignal: null,
+          rejectionReason: null,
+          signalConfidence: null,
+          marketContext: null,
+          performanceMetrics: null,
           isMarketOpen: marketStatus.isOpen,
           marketStatusMessage: apiError ? `API Error: ${apiError}` : marketStatusMessage,
           lastUpdate: Date.now(),
@@ -123,10 +132,22 @@ export async function GET() {
 
     let activeSignal = null
     let rejectionReason = null
+    let signalConfidence = null
 
     if (confirmationTier >= 3 && higherTimeframeAligned) {
       console.log("[v0] Attempting to generate signal for dashboard display...")
       activeSignal = await tradingEngine.generateSignal(marketData, currentPrice)
+
+      if (activeSignal) {
+        signalConfidence = calculateSignalConfidence(activeSignal, marketContext, timeframeScores)
+        console.log(
+          "[v0] Signal confidence:",
+          signalConfidence.score,
+          "- Recommendation:",
+          signalConfidence.recommendation,
+        )
+      }
+
       console.log("[v0] Signal for display:", activeSignal ? "EXISTS" : "NULL")
     } else {
       if (!higherTimeframeAligned) {
@@ -137,6 +158,8 @@ export async function GET() {
         console.log("[v0] No signal - tier < 3")
       }
     }
+
+    const performanceMetrics = tradeHistoryManager.calculatePerformanceMetrics()
 
     return NextResponse.json({
       success: true,
@@ -151,6 +174,9 @@ export async function GET() {
         confirmationTier,
         activeSignal,
         rejectionReason,
+        signalConfidence,
+        marketContext,
+        performanceMetrics,
         isMarketOpen: marketStatus.isOpen,
         marketStatusMessage: apiError ? `API Error: ${apiError}` : marketStatusMessage,
         lastUpdate: Date.now(),
@@ -205,6 +231,9 @@ export async function GET() {
         confirmationTier: 0,
         activeSignal: null,
         rejectionReason: `System error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        signalConfidence: null,
+        marketContext: null,
+        performanceMetrics: null,
         isMarketOpen: false,
         marketStatusMessage: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
         lastUpdate: Date.now(),
