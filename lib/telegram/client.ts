@@ -15,6 +15,7 @@ interface TelegramAlert {
     | "status"
     | "get_ready"
     | "limit_order"
+    | "reversal" // Added reversal alert type
   signal?: TradingSignal
   message?: string
   price?: number
@@ -85,15 +86,18 @@ Market conditions are building. Monitor for further confirmations.
 
   private buildLimitOrderMessage(signal: TradingSignal): string {
     const direction = signal.direction.toUpperCase()
+    const positionType = signal.direction === "bullish" ? "LONG" : "SHORT"
     const emoji = signal.direction === "bullish" ? "🟢" : "🔴"
     const session = getSessionLabel(signal.session)
 
     return `
 ${emoji} *LIMIT ORDER READY* (3/4 Confirmations)
 
-Direction: ${direction}
+Direction: ${direction} (${positionType})
 Entry Zone: $${this.formatPrice(signal.entryPrice)}
 Stop Loss: $${this.formatPrice(signal.stopLoss)}
+${signal.tp1 ? `TP1 (2R): $${this.formatPrice(signal.tp1)}` : ""}
+${signal.tp2 ? `TP2 (3R): $${this.formatPrice(signal.tp2)}` : ""}
 
 ⏰ *Session*: ${session}
 
@@ -116,22 +120,24 @@ Place limit order and wait for final confirmation.
 
   private buildEntryMessage(signal: TradingSignal): string {
     const direction = signal.direction.toUpperCase()
+    const positionType = signal.direction === "bullish" ? "LONG" : "SHORT"
     const emoji = signal.direction === "bullish" ? "🟢" : "🔴"
     const session = getSessionLabel(signal.session)
 
-    const riskReward = signal.takeProfit
-      ? ((signal.takeProfit - signal.entryPrice) / (signal.entryPrice - signal.stopLoss)).toFixed(2)
-      : "N/A"
+    const risk = Math.abs(signal.entryPrice - signal.stopLoss)
+    const rr1 = signal.tp1 ? Math.abs(signal.tp1 - signal.entryPrice) / risk : 0
+    const rr2 = signal.tp2 ? Math.abs(signal.tp2 - signal.entryPrice) / risk : 0
 
     return `
 ${emoji} *ENTER NOW!* (4/4 Confirmations) ${emoji}
 
-🚀 *XAUUSD ${direction} SIGNAL*
+🚀 *XAUUSD ${positionType} SIGNAL* (${direction})
 
 📊 *Entry Details*
 Entry: $${this.formatPrice(signal.entryPrice)}
 Stop Loss: $${this.formatPrice(signal.stopLoss)}
-${signal.takeProfit ? `Take Profit: $${this.formatPrice(signal.takeProfit)}` : ""}
+${signal.tp1 ? `TP1 (${rr1.toFixed(1)}R): $${this.formatPrice(signal.tp1)}` : ""}
+${signal.tp2 ? `TP2 (${rr2.toFixed(1)}R): $${this.formatPrice(signal.tp2)}` : ""}
 Chandelier Stop: $${this.formatPrice(signal.chandelierStop)}
 
 ⏰ *Session*: ${session}
@@ -143,7 +149,7 @@ Strength: ${signal.breakoutZone.strength}/100
 Touches: ${signal.breakoutZone.touches}
 
 📈 *Volatility*
-ATR: ${this.formatPrice(signal.volatility.atr)}
+ATR: $${this.formatPrice(signal.volatility.atr)}
 Score: ${signal.volatility.volatilityScore.toFixed(0)}/100
 ${signal.volatility.rangeExpansion ? "✅ Range Expansion" : ""}
 ${signal.volatility.rangeCompression ? "⚠️ Range Compression" : ""}
@@ -156,7 +162,7 @@ ${signal.timeframeScores
   })
   .join("\n")}
 
-${signal.takeProfit ? `💰 Risk/Reward: 1:${riskReward}` : ""}
+${signal.tp1 && signal.tp2 ? `💰 Risk/Reward - TP1: 1:${rr1.toFixed(1)}, TP2: 1:${rr2.toFixed(1)}` : ""}
 
 🆔 Signal ID: \`${signal.id}\`
     `.trim()
@@ -199,6 +205,29 @@ Timestamp: ${new Date().toISOString()}
 ${message}
 
 Timestamp: ${new Date().toISOString()}
+    `.trim()
+  }
+
+  private buildReversalMessage(signal: TradingSignal, message: string, currentPrice: number): string {
+    const emoji = "🚨"
+    const positionType = signal.direction === "bullish" ? "LONG" : "SHORT"
+
+    return `
+${emoji} *EMERGENCY EXIT ALERT!* ${emoji}
+
+⚠️ *TRADE INVALIDATED - GET OUT NOW!*
+
+Position: ${positionType} (${signal.direction.toUpperCase()})
+Entry: $${this.formatPrice(signal.entryPrice)}
+Current Price: $${this.formatPrice(currentPrice)}
+
+🚨 *Reason*: ${message}
+
+❌ *ACTION REQUIRED*
+Close your position immediately!
+The market has moved against the trade setup.
+
+🆔 Signal ID: \`${signal.id}\`
     `.trim()
   }
 
@@ -275,6 +304,12 @@ Timestamp: ${new Date().toISOString()}
       case "status":
         if (alert.message) {
           message = this.buildStatusMessage(alert.message)
+        }
+        break
+
+      case "reversal":
+        if (alert.signal && alert.message && alert.price) {
+          message = this.buildReversalMessage(alert.signal, alert.message, alert.price)
         }
         break
 

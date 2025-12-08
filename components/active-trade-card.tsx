@@ -52,9 +52,12 @@ export function ActiveTradeCard({ signal, currentPrice }: ActiveTradeCardProps) 
             <p className="text-xs text-muted-foreground">{signal.session.replace("_", " ").toUpperCase()} Session</p>
           </div>
         </div>
-        <Badge variant={isLong ? "default" : "destructive"} className="text-sm px-3 py-1">
-          {signal.direction.toUpperCase()}
-        </Badge>
+        <div className="flex flex-col items-end gap-1">
+          <Badge variant={isLong ? "default" : "destructive"} className="text-sm px-3 py-1 font-bold">
+            {isLong ? "LONG" : "SHORT"}
+          </Badge>
+          <span className="text-xs text-muted-foreground">{signal.direction}</span>
+        </div>
       </div>
 
       {isPending && (

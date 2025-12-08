@@ -63,10 +63,14 @@ function generatePreviewTrade(
 
   const isBullish = direction === "bullish"
 
-  // Calculate entry levels based on direction
   const entryPrice = currentPrice
   const stopLoss = isBullish ? currentPrice - atr * 2 : currentPrice + atr * 2
   const chandelierStop = isBullish ? currentPrice - atr * 3 : currentPrice + atr * 3
+
+  // Calculate TP1 (2R) and TP2 (3R)
+  const riskAmount = Math.abs(entryPrice - stopLoss)
+  const tp1 = isBullish ? entryPrice + riskAmount * 2 : entryPrice - riskAmount * 2
+  const tp2 = isBullish ? entryPrice + riskAmount * 3 : entryPrice - riskAmount * 3
 
   const previewTrade = {
     id: `preview_${Date.now()}`,
@@ -74,6 +78,9 @@ function generatePreviewTrade(
     direction,
     entryPrice,
     stopLoss,
+    takeProfit: tp1,
+    tp1,
+    tp2,
     chandelierStop,
     status: tier === 3 ? "pending" : "active",
     breakoutZone: {
@@ -97,6 +104,7 @@ function generatePreviewTrade(
 }
 
 let lastAlertTier = 0
+let lastActiveSignal: any | null = null
 
 export async function GET() {
   try {
@@ -277,6 +285,44 @@ export async function GET() {
     }
 
     console.log("[v0] Final activeSignal:", activeSignal ? "EXISTS" : "NULL")
+
+    if (lastActiveSignal && activeSignal) {
+      const priceMovedAgainstTrade =
+        (lastActiveSignal.direction === "bullish" && currentPrice < lastActiveSignal.stopLoss) ||
+        (lastActiveSignal.direction === "bearish" && currentPrice > lastActiveSignal.stopLoss)
+
+      const trendReversed =
+        (lastActiveSignal.direction === "bullish" && trend1h === "bearish") ||
+        (lastActiveSignal.direction === "bearish" && trend1h === "bullish")
+
+      if (priceMovedAgainstTrade || trendReversed) {
+        console.log("[v0] REVERSAL DETECTED - Price hit stop or trend reversed!")
+
+        if (marketStatus.isOpen) {
+          try {
+            await sendTelegramAlert({
+              type: "reversal",
+              signal: lastActiveSignal,
+              message: priceMovedAgainstTrade
+                ? `Price hit stop loss! Current: $${currentPrice.toFixed(2)}, Stop: $${lastActiveSignal.stopLoss.toFixed(2)}`
+                : `Trend reversed! 1H trend now ${trend1h}`,
+              price: currentPrice,
+            })
+            console.log("[v0] REVERSAL alert sent successfully")
+          } catch (error) {
+            console.error("[v0] Failed to send reversal alert:", error)
+          }
+        }
+
+        // Clear the signal since it's invalidated
+        activeSignal = null
+        lastActiveSignal = null
+      }
+    }
+
+    if (activeSignal) {
+      lastActiveSignal = activeSignal
+    }
 
     return NextResponse.json({
       success: true,

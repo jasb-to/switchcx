@@ -63,6 +63,8 @@ export interface TradingSignal {
   entryPrice: number
   stopLoss: number
   takeProfit?: number
+  tp1?: number
+  tp2?: number
   chandelierStop: number
   status: SignalStatus
   breakoutZone: BreakoutZone
