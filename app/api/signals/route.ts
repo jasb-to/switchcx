@@ -122,6 +122,7 @@ export async function GET() {
     const higherTimeframeAligned = trend4h === trend1h && trend4h !== "ranging"
 
     let activeSignal = null
+    let rejectionReason = null
 
     if (confirmationTier >= 3 && higherTimeframeAligned) {
       console.log("[v0] Attempting to generate signal for dashboard display...")
@@ -129,8 +130,10 @@ export async function GET() {
       console.log("[v0] Signal for display:", activeSignal ? "EXISTS" : "NULL")
     } else {
       if (!higherTimeframeAligned) {
+        rejectionReason = `Timeframe misalignment: 4H is ${trend4h}, 1H is ${trend1h}. Wait for alignment before trading.`
         console.log("[v0] No signal - 4H and 1H not aligned (4H:", trend4h, "1H:", trend1h + ")")
       } else {
+        rejectionReason = `Insufficient confirmations: Only ${confirmationTier}/4 criteria met`
         console.log("[v0] No signal - tier < 3")
       }
     }
@@ -147,6 +150,7 @@ export async function GET() {
         timeframeScores,
         confirmationTier,
         activeSignal,
+        rejectionReason,
         isMarketOpen: marketStatus.isOpen,
         marketStatusMessage: apiError ? `API Error: ${apiError}` : marketStatusMessage,
         lastUpdate: Date.now(),
@@ -200,6 +204,7 @@ export async function GET() {
         ],
         confirmationTier: 0,
         activeSignal: null,
+        rejectionReason: `System error: ${error instanceof Error ? error.message : "Unknown error"}`,
         isMarketOpen: false,
         marketStatusMessage: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
         lastUpdate: Date.now(),

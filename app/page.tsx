@@ -25,6 +25,7 @@ interface MarketData {
   confirmationTier: number
   lastUpdate: number
   activeSignal?: TradingSignal
+  rejectionReason?: string
   isMarketOpen: boolean
   marketStatusMessage: string
 }
@@ -161,7 +162,11 @@ export default function HomePage() {
 
         {/* Active Trade and Entry Instructions cards */}
         <div className="grid gap-6 lg:grid-cols-2">
-          <ActiveTradeCard signal={marketData.activeSignal || null} currentPrice={marketData.currentPrice} />
+          <ActiveTradeCard
+            signal={marketData.activeSignal || null}
+            currentPrice={marketData.currentPrice}
+            rejectionReason={marketData.rejectionReason}
+          />
           <EntryInstructionsCard />
         </div>
 

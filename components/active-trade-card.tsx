@@ -8,9 +8,10 @@ import type { TradingSignal } from "@/lib/types/trading"
 interface ActiveTradeCardProps {
   signal: TradingSignal | null
   currentPrice: number
+  rejectionReason?: string
 }
 
-export function ActiveTradeCard({ signal, currentPrice }: ActiveTradeCardProps) {
+export function ActiveTradeCard({ signal, currentPrice, rejectionReason }: ActiveTradeCardProps) {
   if (!signal) {
     return (
       <Card className="p-6 border-border bg-card">
@@ -19,11 +20,15 @@ export function ActiveTradeCard({ signal, currentPrice }: ActiveTradeCardProps) 
             <Target className="h-12 w-12 mx-auto text-muted-foreground" />
           </div>
           <h3 className="text-lg font-semibold text-foreground mb-2">No Active Trade</h3>
-          <p className="text-sm text-muted-foreground">Waiting for setup confirmation across all timeframes</p>
+          <p className="text-sm text-muted-foreground">
+            {rejectionReason || "Waiting for setup confirmation across all timeframes"}
+          </p>
         </div>
       </Card>
     )
   }
+
+  const hasValidationWarning = signal.metadata?.rejectionReason
 
   const isLong = signal.direction === "bullish"
   const pnl = isLong ? currentPrice - signal.entryPrice : signal.entryPrice - currentPrice
@@ -59,6 +64,15 @@ export function ActiveTradeCard({ signal, currentPrice }: ActiveTradeCardProps) 
           <span className="text-xs text-muted-foreground">{signal.direction}</span>
         </div>
       </div>
+
+      {hasValidationWarning && (
+        <div className="mb-4 p-3 bg-destructive/10 border border-destructive/30 rounded-md">
+          <p className="text-sm text-destructive font-medium">⚠️ Signal Rejected</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {signal.metadata?.rejectionReason || "This signal did not meet quality criteria"}
+          </p>
+        </div>
+      )}
 
       {isPending && (
         <div className="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-md">

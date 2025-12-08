@@ -75,6 +75,10 @@ export interface TradingSignal {
   exitPrice?: number
   exitTimestamp?: number
   pnl?: number
+  metadata?: {
+    rejectionReason?: string
+    warning?: string
+  }
 }
 
 export interface RiskManagement {
