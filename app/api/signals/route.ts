@@ -7,6 +7,7 @@ import { getGoldMarketStatus, formatMarketHours } from "@/lib/utils/market-hours
 import { getMarketContext, shouldAvoidTrading } from "@/lib/market-context/intelligence"
 import { calculateSignalConfidence } from "@/lib/strategy/confidence-scorer"
 import { tradeHistoryManager } from "@/lib/database/trade-history"
+import { calculateChandelierExit } from "@/lib/strategy/indicators"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -147,10 +148,17 @@ export async function GET() {
       tradingEngine.analyzeTimeframe(marketData[tf as Timeframe], tf as Timeframe),
     )
 
-    const enhancedTimeframeScores = timeframeScores.map((score) => ({
-      ...score,
-      trendDirection: tradingEngine.detectTrend(marketData[score.timeframe]),
-    }))
+    const enhancedTimeframeScores = timeframeScores.map((score) => {
+      const candles = marketData[score.timeframe]
+      const chandelier = calculateChandelierExit(candles, 22, 3)
+
+      return {
+        ...score,
+        trendDirection: tradingEngine.detectTrend(candles),
+        chandelierLong: chandelier.stopLong[chandelier.stopLong.length - 1],
+        chandelierShort: chandelier.stopShort[chandelier.stopShort.length - 1],
+      }
+    })
 
     const trend4h = tradingEngine.detectTrend(marketData["4h"])
     const trend1h = tradingEngine.detectTrend(marketData["1h"])

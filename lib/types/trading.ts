@@ -55,6 +55,8 @@ export interface TimeframeScore {
   }
   adxValue?: number
   trendDirection?: Direction
+  chandelierLong?: number
+  chandelierShort?: number
 }
 
 export interface TradingSignal {

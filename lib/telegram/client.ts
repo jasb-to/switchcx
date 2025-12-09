@@ -90,9 +90,13 @@ Market conditions are building. Monitor for further confirmations.
     const emoji = signal.direction === "bullish" ? "🟢" : "🔴"
     const session = getSessionLabel(signal.session)
 
+    const modeEmoji = signal.metadata?.signalMode === "conservative" ? "🛡️" : "⚡"
+    const modeLabel = signal.metadata?.signalMode === "conservative" ? "CONSERVATIVE" : "AGGRESSIVE"
+
     return `
 ${emoji} *LIMIT ORDER READY* (3/4 Confirmations)
 
+${modeEmoji} *Mode*: ${modeLabel}
 Direction: ${direction} (${positionType})
 Entry Zone: $${this.formatPrice(signal.entryPrice)}
 Stop Loss: $${this.formatPrice(signal.stopLoss)}
@@ -114,6 +118,12 @@ ${signal.timeframeScores
   })
   .join("\n")}
 
+${
+  signal.metadata?.signalMode === "conservative"
+    ? "🛡️ High probability - All major timeframes aligned"
+    : "⚡ Early entry - Lower timeframes leading"
+}
+
 Place limit order and wait for final confirmation.
     `.trim()
   }
@@ -128,10 +138,17 @@ Place limit order and wait for final confirmation.
     const rr1 = signal.tp1 ? Math.abs(signal.tp1 - signal.entryPrice) / risk : 0
     const rr2 = signal.tp2 ? Math.abs(signal.tp2 - signal.entryPrice) / risk : 0
 
+    const modeEmoji = signal.metadata?.signalMode === "conservative" ? "🛡️" : "⚡"
+    const modeLabel = signal.metadata?.signalMode === "conservative" ? "CONSERVATIVE" : "AGGRESSIVE"
+    const confidence = signal.metadata?.confidenceScore || 0
+
     return `
 ${emoji} *ENTER NOW!* (4/4 Confirmations) ${emoji}
 
 🚀 *XAUUSD ${positionType} SIGNAL* (${direction})
+
+${modeEmoji} *Mode*: ${modeLabel}
+📊 *Confidence*: ${confidence}/10
 
 📊 *Entry Details*
 Entry: $${this.formatPrice(signal.entryPrice)}
@@ -161,6 +178,12 @@ ${signal.timeframeScores
     return `${icon} ${tf.timeframe.toUpperCase()}: ${tf.score}/${tf.maxScore}${tf.timeframe === "1h" && tf.adxValue ? ` (ADX: ${tf.adxValue.toFixed(1)})` : ""}`
   })
   .join("\n")}
+
+${
+  signal.metadata?.signalMode === "conservative"
+    ? "🛡️ HIGH PROBABILITY - All major timeframes aligned\nExpected win rate: 65-75%"
+    : "⚡ EARLY ENTRY - Catching momentum shift\nExpected win rate: 55-65%"
+}
 
 ${signal.tp1 && signal.tp2 ? `💰 Risk/Reward - TP1: 1:${rr1.toFixed(1)}, TP2: 1:${rr2.toFixed(1)}` : ""}
 

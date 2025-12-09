@@ -7,6 +7,8 @@ import type { Timeframe } from "@/lib/types/trading"
 import { sendTelegramAlert } from "@/lib/telegram/client"
 import { getGoldMarketStatus } from "@/lib/utils/market-hours"
 import { getMarketContext, shouldAvoidTrading } from "@/lib/market-context/intelligence"
+import { tradeHistoryManager } from "@/lib/database/trade-history"
+import type { TradeHistory } from "@/lib/types/trading"
 
 export const maxDuration = 60
 export const dynamic = "force-dynamic"
@@ -15,13 +17,29 @@ export const dynamic = "force-dynamic"
 let lastAlertTier = 0
 let lastActiveSignal: any | null = null
 
-function calculateAlertTier(scores: { timeframe: Timeframe; score: number }[]): number {
+function calculateAlertTier(scores: { timeframe: Timeframe; score: number }[], marketData: any): number {
   const score4h = scores.find((s) => s.timeframe === "4h")
   const score1h = scores.find((s) => s.timeframe === "1h")
   const score15m = scores.find((s) => s.timeframe === "15m")
   const score5m = scores.find((s) => s.timeframe === "5m")
 
   if (!score4h || !score1h || !score15m || !score5m) return 0
+
+  // Check timeframe alignment for conservative mode
+  const trend4h = tradingEngine.detectTrend(marketData["4h"])
+  const trend1h = tradingEngine.detectTrend(marketData["1h"])
+  const trend15m = tradingEngine.detectTrend(marketData["15m"])
+  const trend5m = tradingEngine.detectTrend(marketData["5m"])
+
+  // Conservative mode: 4H and 1H must align
+  const conservativeMode = trend4h === trend1h && trend4h !== "ranging"
+
+  // Aggressive mode: 1H, 15M, 5M must align (even if 4H disagrees)
+  const aggressiveMode = trend1h === trend15m && trend1h === trend5m && trend1h !== "ranging"
+
+  if (!conservativeMode && !aggressiveMode) {
+    return 0 // No alignment, no signal
+  }
 
   let tier = 0
   if (score4h.score >= 3) tier++
@@ -82,7 +100,7 @@ export async function GET(request: NextRequest) {
     const timeframeScores = timeframes.map((tf) => tradingEngine.analyzeTimeframe(marketData[tf], tf))
 
     // Calculate alert tier
-    const currentTier = calculateAlertTier(timeframeScores)
+    const currentTier = calculateAlertTier(timeframeScores, marketData)
 
     console.log("[v0] Current alert tier:", currentTier)
     console.log("[v0] Last alert tier:", lastAlertTier)
@@ -136,6 +154,30 @@ export async function GET(request: NextRequest) {
           })
 
           console.log("[v0] ✅ REVERSAL alert sent from cron")
+
+          const openTrades = tradeHistoryManager.getAllTrades().filter((t) => t.status === "open")
+          if (openTrades.length > 0) {
+            const trade = openTrades[openTrades.length - 1]
+            const pnl =
+              lastActiveSignal.direction === "bullish"
+                ? currentPrice - trade.entryPrice
+                : trade.entryPrice - currentPrice
+            const pnlPercent = (pnl / trade.entryPrice) * 100
+            const rMultiple = pnl / riskAmount
+
+            tradeHistoryManager.updateTrade(trade.id, {
+              exitPrice: currentPrice,
+              exitTime: Date.now(),
+              pnl,
+              pnlPercent,
+              rMultiple,
+              status: "closed",
+              exitReason: reversalReason,
+              duration: Date.now() - trade.entryTime,
+            })
+            console.log("[v0] Trade closed in history:", trade.id, "PNL:", pnl.toFixed(2))
+          }
+
           lastActiveSignal = null
           lastAlertTier = 0
         }
@@ -164,6 +206,20 @@ export async function GET(request: NextRequest) {
             })
             console.log("[v0] LIMIT ORDER alert sent successfully")
             lastActiveSignal = signal
+
+            const tradeRecord: TradeHistory = {
+              id: `trade_${Date.now()}`,
+              signal,
+              entryPrice: signal.entryPrice,
+              entryTime: Date.now(),
+              stopLoss: signal.stopLoss,
+              takeProfit: signal.takeProfit,
+              tp1: signal.tp1,
+              tp2: signal.tp2,
+              status: "open",
+            }
+            tradeHistoryManager.addTrade(tradeRecord)
+            console.log("[v0] Trade recorded in history:", tradeRecord.id)
           } else {
             console.log("[v0] No signal generated for limit order alert")
           }
@@ -177,6 +233,20 @@ export async function GET(request: NextRequest) {
             })
             console.log("[v0] ENTRY alert sent successfully")
             lastActiveSignal = signal
+
+            const tradeRecord: TradeHistory = {
+              id: `trade_${Date.now()}`,
+              signal,
+              entryPrice: signal.entryPrice,
+              entryTime: Date.now(),
+              stopLoss: signal.stopLoss,
+              takeProfit: signal.takeProfit,
+              tp1: signal.tp1,
+              tp2: signal.tp2,
+              status: "open",
+            }
+            tradeHistoryManager.addTrade(tradeRecord)
+            console.log("[v0] Trade recorded in history:", tradeRecord.id)
           } else {
             console.log("[v0] No signal generated for entry alert")
           }

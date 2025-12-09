@@ -3,7 +3,7 @@
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { CheckCircle2, AlertCircle, XCircle, TrendingUp, TrendingDown, Minus } from "lucide-react"
+import { CheckCircle2, XCircle, TrendingUp, TrendingDown, Minus } from "lucide-react"
 import type { TimeframeScore } from "@/lib/types/trading"
 
 interface TimeframeScoreboardProps {
@@ -17,13 +17,6 @@ export function TimeframeScoreboard({ scores }: TimeframeScoreboardProps) {
     if (percentage >= 60) return "text-primary"
     if (percentage >= 40) return "text-chart-4"
     return "text-destructive"
-  }
-
-  const getScoreIcon = (score: number, maxScore: number) => {
-    const percentage = (score / maxScore) * 100
-    if (percentage >= 80) return <CheckCircle2 className="h-5 w-5 text-success" />
-    if (percentage >= 40) return <AlertCircle className="h-5 w-5 text-primary" />
-    return <XCircle className="h-5 w-5 text-destructive" />
   }
 
   const getCriteriaStatus = (value: boolean) => {
@@ -89,20 +82,47 @@ export function TimeframeScoreboard({ scores }: TimeframeScoreboardProps) {
           return (
             <Card key={score.timeframe} className="p-4 bg-accent/30 border-border">
               <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  {getScoreIcon(score.score, score.maxScore)}
-                  <h3 className="font-semibold uppercase text-sm text-foreground">{score.timeframe}</h3>
-                </div>
-                <div className={`text-2xl font-bold ${getScoreColor(score.score, score.maxScore)}`}>
+                <h3 className="font-semibold uppercase text-sm text-foreground">{score.timeframe}</h3>
+                {getTrendBadge(score.trendDirection)}
+              </div>
+
+              <div className="flex items-center justify-between mb-2">
+                <div className={`text-3xl font-bold ${getScoreColor(score.score, score.maxScore)}`}>
                   {score.score}/{score.maxScore}
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-muted-foreground mb-0.5">Min: {required}/5</div>
+                  {meetsRequirement ? (
+                    <Badge className="text-xs bg-success text-success-foreground">Valid</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs border-destructive text-destructive">
+                      Invalid
+                    </Badge>
+                  )}
                 </div>
               </div>
 
-              <div className="mb-3 flex justify-center">{getTrendBadge(score.trendDirection)}</div>
-
               <Progress value={percentage} className="h-2 mb-3" />
 
-              <div className="space-y-1.5 mb-3">
+              {score.chandelierLong && score.chandelierShort && (
+                <div className="mb-3 pb-3 border-b border-border">
+                  <div className="text-xs text-muted-foreground mb-1.5">Chandelier Stops</div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-success flex items-center gap-1">
+                      <TrendingUp className="h-3 w-3" />
+                      Long: ${score.chandelierLong.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs mt-0.5">
+                    <span className="text-destructive flex items-center gap-1">
+                      <TrendingDown className="h-3 w-3" />
+                      Short: ${score.chandelierShort.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">
                     ADX {score.adxValue ? `(${score.adxValue.toFixed(1)})` : "(N/A)"}
@@ -125,17 +145,6 @@ export function TimeframeScoreboard({ scores }: TimeframeScoreboardProps) {
                   <span className="text-muted-foreground">Volatility</span>
                   {getCriteriaStatus(score.criteria.volatility)}
                 </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-2 border-t border-border">
-                <span className="text-xs text-muted-foreground">Required: {required}/5</span>
-                {meetsRequirement ? (
-                  <Badge className="text-xs bg-success text-success-foreground">Met</Badge>
-                ) : (
-                  <Badge variant="outline" className="text-xs border-destructive text-destructive">
-                    Not Met
-                  </Badge>
-                )}
               </div>
             </Card>
           )
