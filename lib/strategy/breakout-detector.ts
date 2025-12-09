@@ -2,6 +2,183 @@
 
 import type { Candle, BreakoutZone, Direction } from "../types/trading"
 
+export interface Trendline {
+  slope: number
+  intercept: number
+  type: "ascending" | "descending"
+  strength: number
+  touches: number
+  startIndex: number
+  endIndex: number
+}
+
+export function detectTrendlines(candles: Candle[], lookback = 50): Trendline[] {
+  if (candles.length < lookback) {
+    return []
+  }
+
+  const recentCandles = candles.slice(-lookback)
+  const trendlines: Trendline[] = []
+
+  // Find descending trendlines (connect swing highs)
+  const swingHighs: { index: number; price: number }[] = []
+  for (let i = 2; i < recentCandles.length - 2; i++) {
+    const candle = recentCandles[i]
+    if (
+      candle.high > recentCandles[i - 1].high &&
+      candle.high > recentCandles[i - 2].high &&
+      candle.high > recentCandles[i + 1].high &&
+      candle.high > recentCandles[i + 2].high
+    ) {
+      swingHighs.push({ index: i, price: candle.high })
+    }
+  }
+
+  // Find ascending trendlines (connect swing lows)
+  const swingLows: { index: number; price: number }[] = []
+  for (let i = 2; i < recentCandles.length - 2; i++) {
+    const candle = recentCandles[i]
+    if (
+      candle.low < recentCandles[i - 1].low &&
+      candle.low < recentCandles[i - 2].low &&
+      candle.low < recentCandles[i + 1].low &&
+      candle.low < recentCandles[i + 2].low
+    ) {
+      swingLows.push({ index: i, price: candle.low })
+    }
+  }
+
+  // Create descending trendlines from swing highs
+  if (swingHighs.length >= 2) {
+    for (let i = 0; i < swingHighs.length - 1; i++) {
+      for (let j = i + 1; j < swingHighs.length; j++) {
+        const point1 = swingHighs[i]
+        const point2 = swingHighs[j]
+
+        const slope = (point2.price - point1.price) / (point2.index - point1.index)
+
+        // Only descending trendlines (negative slope)
+        if (slope < -0.1) {
+          const intercept = point1.price - slope * point1.index
+
+          // Count touches
+          let touches = 2
+          for (const swing of swingHighs) {
+            if (swing.index !== point1.index && swing.index !== point2.index) {
+              const expectedPrice = slope * swing.index + intercept
+              if (Math.abs(swing.price - expectedPrice) / swing.price < 0.005) {
+                touches++
+              }
+            }
+          }
+
+          if (touches >= 2) {
+            trendlines.push({
+              slope,
+              intercept,
+              type: "descending",
+              strength: Math.min(100, touches * 25),
+              touches,
+              startIndex: point1.index,
+              endIndex: point2.index,
+            })
+          }
+        }
+      }
+    }
+  }
+
+  // Create ascending trendlines from swing lows
+  if (swingLows.length >= 2) {
+    for (let i = 0; i < swingLows.length - 1; i++) {
+      for (let j = i + 1; j < swingLows.length; j++) {
+        const point1 = swingLows[i]
+        const point2 = swingLows[j]
+
+        const slope = (point2.price - point1.price) / (point2.index - point1.index)
+
+        // Only ascending trendlines (positive slope)
+        if (slope > 0.1) {
+          const intercept = point1.price - slope * point1.index
+
+          // Count touches
+          let touches = 2
+          for (const swing of swingLows) {
+            if (swing.index !== point1.index && swing.index !== point2.index) {
+              const expectedPrice = slope * swing.index + intercept
+              if (Math.abs(swing.price - expectedPrice) / swing.price < 0.005) {
+                touches++
+              }
+            }
+          }
+
+          if (touches >= 2) {
+            trendlines.push({
+              slope,
+              intercept,
+              type: "ascending",
+              strength: Math.min(100, touches * 25),
+              touches,
+              startIndex: point1.index,
+              endIndex: point2.index,
+            })
+          }
+        }
+      }
+    }
+  }
+
+  return trendlines.sort((a, b) => b.strength - a.strength).slice(0, 3)
+}
+
+export function checkTrendlineBreakout(
+  currentPrice: number,
+  candles: Candle[],
+  trendlines: Trendline[],
+): { isBreakout: boolean; direction: Direction; trendline?: Trendline } {
+  if (trendlines.length === 0 || candles.length === 0) {
+    return { isBreakout: false, direction: "ranging" }
+  }
+
+  const currentIndex = candles.length - 1
+  const lastCandle = candles[candles.length - 1]
+
+  for (const trendline of trendlines) {
+    const expectedPrice = trendline.slope * currentIndex + trendline.intercept
+    const previousExpectedPrice = trendline.slope * (currentIndex - 1) + trendline.intercept
+
+    // Descending trendline breakout (bullish)
+    if (trendline.type === "descending") {
+      const wasBelow = lastCandle.close < previousExpectedPrice
+      const isAbove = currentPrice > expectedPrice * 1.002 // 0.2% above trendline
+
+      if (wasBelow && isAbove) {
+        return {
+          isBreakout: true,
+          direction: "bullish",
+          trendline,
+        }
+      }
+    }
+
+    // Ascending trendline breakdown (bearish)
+    if (trendline.type === "ascending") {
+      const wasAbove = lastCandle.close > previousExpectedPrice
+      const isBelow = currentPrice < expectedPrice * 0.998 // 0.2% below trendline
+
+      if (wasAbove && isBelow) {
+        return {
+          isBreakout: true,
+          direction: "bearish",
+          trendline,
+        }
+      }
+    }
+  }
+
+  return { isBreakout: false, direction: "ranging" }
+}
+
 export function detectBreakoutZones(candles: Candle[], lookback = 50): BreakoutZone[] {
   if (candles.length < lookback) {
     return []

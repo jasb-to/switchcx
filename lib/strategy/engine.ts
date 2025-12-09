@@ -17,7 +17,7 @@ import {
   detectVolatilityState,
   calculateVolume,
 } from "./indicators"
-import { detectBreakoutZones, checkBreakout, validateBreakoutWithVolume } from "./breakout-detector"
+import { detectBreakoutZones, checkBreakout, detectTrendlines, checkTrendlineBreakout } from "./breakout-detector"
 import { getCurrentSession, shouldTradeInSession } from "./session-filter"
 
 export class TradingEngine {
@@ -256,64 +256,49 @@ export class TradingEngine {
     const zones = detectBreakoutZones(marketData["1h"])
     console.log("[v0] Detected zones:", zones.length)
 
+    const trendlines = detectTrendlines(marketData["1h"], 50)
+    console.log("[v0] Detected trendlines:", trendlines.length)
+
     const breakout = checkBreakout(currentPrice, marketData["1h"], zones)
+    const trendlineBreakout = checkTrendlineBreakout(currentPrice, marketData["1h"], trendlines)
+
     console.log("[v0] Breakout check result:", breakout)
+    console.log("[v0] Trendline breakout check result:", trendlineBreakout)
 
-    if (!breakout.isBreakout || !breakout.zone) {
-      console.log("[v0] No confirmed breakout detected - signal rejected")
-      return null
-    }
+    const validBreakout = breakout.isBreakout ? breakout : trendlineBreakout.isBreakout ? trendlineBreakout : null
 
-    if (conservativeMode && (breakout.direction !== trend4h || breakout.direction !== trend1h)) {
-      console.log(
-        "[v0] Breakout direction conflicts with higher timeframes - 4H:",
-        trend4h,
-        "1H:",
-        trend1h,
-        "Breakout:",
-        breakout.direction,
-      )
-      return null
-    }
-
-    if (aggressiveMode && breakout.direction !== trend1h) {
-      console.log("[v0] Breakout direction conflicts with 1H trend - 1H:", trend1h, "Breakout:", breakout.direction)
-      return null
-    }
-
-    const volumeValid = validateBreakoutWithVolume(marketData["1h"])
-    if (!volumeValid && strongConfirmations < 2) {
-      console.log("[v0] Volume validation failed for moderate conviction setup")
+    if (!validBreakout) {
+      console.log("[v0] No confirmed breakout detected (horizontal or trendline) - signal rejected")
       return null
     }
 
     const candles5m = marketData["5m"]
     const confirmed5m =
-      (breakout.direction === "bullish" && (trend5m === "bullish" || trend5m === "ranging")) ||
-      (breakout.direction === "bearish" && (trend5m === "bearish" || trend5m === "ranging"))
+      (validBreakout.direction === "bullish" && (trend5m === "bullish" || trend5m === "ranging")) ||
+      (validBreakout.direction === "bearish" && (trend5m === "bearish" || trend5m === "ranging"))
 
     if (!confirmed5m) {
-      console.log("[v0] 5m trend alignment failed - 5m trend:", trend5m, "signal direction:", breakout.direction)
+      console.log("[v0] 5m trend alignment failed - 5m trend:", trend5m, "signal direction:", validBreakout.direction)
       return null
     }
 
     // Calculate Chandelier Exit
     const chandelier = calculateChandelierExit(marketData["1h"], 22, 3)
     const chandelierStop =
-      breakout.direction === "bullish"
+      validBreakout.direction === "bullish"
         ? chandelier.stopLong[chandelier.stopLong.length - 1]
         : chandelier.stopShort[chandelier.stopShort.length - 1]
 
     // Calculate TP1 (2R) and TP2 (3R)
     const riskAmount = Math.abs(currentPrice - chandelierStop)
-    const tp1 = breakout.direction === "bullish" ? currentPrice + riskAmount * 2 : currentPrice - riskAmount * 2
-    const tp2 = breakout.direction === "bullish" ? currentPrice + riskAmount * 3 : currentPrice - riskAmount * 3
+    const tp1 = validBreakout.direction === "bullish" ? currentPrice + riskAmount * 2 : currentPrice - riskAmount * 2
+    const tp2 = validBreakout.direction === "bullish" ? currentPrice + riskAmount * 3 : currentPrice - riskAmount * 3
 
     // Generate signal
     const signal: TradingSignal = {
       id: `signal_${Date.now()}`,
       timestamp: Date.now(),
-      direction: breakout.direction,
+      direction: validBreakout.direction,
       entryPrice: currentPrice,
       stopLoss: chandelierStop,
       takeProfit: tp1,
@@ -321,12 +306,13 @@ export class TradingEngine {
       tp2,
       chandelierStop,
       status: "active",
-      breakoutZone: breakout.zone,
+      breakoutZone: "zone" in validBreakout ? validBreakout.zone : undefined,
       volatility,
       timeframeScores,
       session,
       metadata: {
-        signalMode, // Track which mode generated the signal
+        signalMode,
+        breakoutType: "zone" in validBreakout ? "horizontal" : "trendline",
       },
     }
 
