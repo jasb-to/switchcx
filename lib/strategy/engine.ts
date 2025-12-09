@@ -142,7 +142,11 @@ export class TradingEngine {
     }
   }
 
-  async generateSignal(marketData: Record<Timeframe, Candle[]>, currentPrice: number): Promise<TradingSignal | null> {
+  async generateSignal(
+    marketData: Record<Timeframe, Candle[]>,
+    currentPrice: number,
+    allowEarlyEntry = true,
+  ): Promise<TradingSignal | null> {
     console.log("[v0] Generating trading signal...")
 
     // Check risk management
@@ -182,13 +186,34 @@ export class TradingEngine {
 
     const trend4h = this.detectTrend(marketData["4h"])
     const trend1h = this.detectTrend(marketData["1h"])
+    const trend15m = this.detectTrend(marketData["15m"])
+    const trend5m = this.detectTrend(marketData["5m"])
 
-    if (trend4h !== trend1h || trend4h === "ranging" || trend1h === "ranging") {
-      console.log("[v0] Higher timeframe alignment required - 4H:", trend4h, "1H:", trend1h)
+    const conservativeMode = trend4h === trend1h && trend4h !== "ranging" && trend1h !== "ranging"
+    const aggressiveMode =
+      allowEarlyEntry &&
+      trend1h !== "ranging" &&
+      trend15m !== "ranging" &&
+      trend5m !== "ranging" &&
+      trend1h === trend15m &&
+      trend1h === trend5m
+
+    if (!conservativeMode && !aggressiveMode) {
+      if (!conservativeMode) {
+        console.log("[v0] Conservative mode failed - 4H:", trend4h, "1H:", trend1h)
+      }
+      if (!aggressiveMode) {
+        console.log("[v0] Aggressive mode failed - 1H:", trend1h, "15M:", trend15m, "5M:", trend5m)
+      }
       return null
     }
 
-    // Require at least 2/4 timeframes with 2+ score or 2/4 with 3+ score
+    const signalMode = conservativeMode ? "conservative" : "aggressive"
+    console.log("[v0] Signal mode:", signalMode)
+
+    const requiredStrongConfirmations = conservativeMode ? 2 : 1
+    const requiredModerateConfirmations = conservativeMode ? 2 : 3
+
     const strongConfirmations = [
       score4h.score >= 3,
       score1h.score >= 3,
@@ -202,8 +227,9 @@ export class TradingEngine {
       score5m.score >= 2,
     ].filter(Boolean).length
 
-    if (strongConfirmations < 2 && moderateConfirmations < 2) {
-      console.log("[v0] Insufficient confirmations - need 2+ with 2+ score", {
+    if (strongConfirmations < requiredStrongConfirmations && moderateConfirmations < requiredModerateConfirmations) {
+      console.log("[v0] Insufficient confirmations for", signalMode, "mode", {
+        required: conservativeMode ? "2 strong or 2 moderate" : "1 strong or 3 moderate",
         score4h: score4h.score,
         score1h: score1h.score,
         score15m: score15m.score,
@@ -238,7 +264,7 @@ export class TradingEngine {
       return null
     }
 
-    if (breakout.direction !== trend4h || breakout.direction !== trend1h) {
+    if (conservativeMode && (breakout.direction !== trend4h || breakout.direction !== trend1h)) {
       console.log(
         "[v0] Breakout direction conflicts with higher timeframes - 4H:",
         trend4h,
@@ -250,6 +276,11 @@ export class TradingEngine {
       return null
     }
 
+    if (aggressiveMode && breakout.direction !== trend1h) {
+      console.log("[v0] Breakout direction conflicts with 1H trend - 1H:", trend1h, "Breakout:", breakout.direction)
+      return null
+    }
+
     const volumeValid = validateBreakoutWithVolume(marketData["1h"])
     if (!volumeValid && strongConfirmations < 2) {
       console.log("[v0] Volume validation failed for moderate conviction setup")
@@ -257,8 +288,6 @@ export class TradingEngine {
     }
 
     const candles5m = marketData["5m"]
-    const trend5m = this.detectTrend(candles5m)
-
     const confirmed5m =
       (breakout.direction === "bullish" && (trend5m === "bullish" || trend5m === "ranging")) ||
       (breakout.direction === "bearish" && (trend5m === "bearish" || trend5m === "ranging"))
@@ -296,6 +325,9 @@ export class TradingEngine {
       volatility,
       timeframeScores,
       session,
+      metadata: {
+        signalMode, // Track which mode generated the signal
+      },
     }
 
     this.riskManagement.currentSessionTrades++

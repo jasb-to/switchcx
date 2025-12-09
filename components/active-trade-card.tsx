@@ -2,16 +2,17 @@
 
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { TrendingUp, TrendingDown, Shield, Target } from "lucide-react"
+import { TrendingUp, TrendingDown, Shield, Target, Zap } from "lucide-react"
 import type { TradingSignal } from "@/lib/types/trading"
 
 interface ActiveTradeCardProps {
   signal: TradingSignal | null
   currentPrice: number
   rejectionReason?: string
+  signalMode?: "conservative" | "aggressive" | "none" // Added signal mode prop
 }
 
-export function ActiveTradeCard({ signal, currentPrice, rejectionReason }: ActiveTradeCardProps) {
+export function ActiveTradeCard({ signal, currentPrice, rejectionReason, signalMode }: ActiveTradeCardProps) {
   if (!signal) {
     return (
       <Card className="p-6 border-border bg-card">
@@ -43,6 +44,8 @@ export function ActiveTradeCard({ signal, currentPrice, rejectionReason }: Activ
   const title = isPending ? "Limit Order Ready" : "Active Trade"
   const borderColor = isPending ? "border-warning/30" : "border-primary/30"
 
+  const tradeSignalMode = signal.metadata?.signalMode || signalMode || "conservative"
+
   return (
     <Card className={`p-6 ${borderColor} bg-card`}>
       <div className="flex items-center justify-between mb-6">
@@ -64,6 +67,26 @@ export function ActiveTradeCard({ signal, currentPrice, rejectionReason }: Activ
           <span className="text-xs text-muted-foreground">{signal.direction}</span>
         </div>
       </div>
+
+      {tradeSignalMode && (
+        <div className="mb-4 p-3 bg-accent/50 rounded-lg flex items-center gap-2">
+          {tradeSignalMode === "conservative" ? (
+            <Shield className="h-4 w-4 text-primary" />
+          ) : (
+            <Zap className="h-4 w-4 text-warning" />
+          )}
+          <div className="flex-1">
+            <div className="text-sm font-medium text-foreground">
+              {tradeSignalMode === "conservative" ? "Conservative Entry" : "Aggressive Entry - Early"}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {tradeSignalMode === "conservative"
+                ? "4H + 1H aligned for high probability"
+                : "Lower timeframes aligned - catching early momentum"}
+            </div>
+          </div>
+        </div>
+      )}
 
       {hasValidationWarning && (
         <div className="mb-4 p-3 bg-destructive/10 border border-destructive/30 rounded-md">

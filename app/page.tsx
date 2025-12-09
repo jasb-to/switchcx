@@ -24,6 +24,8 @@ interface MarketData {
   currentSession: TradingSession
   trend4h: Direction
   trend1h: Direction
+  trend15m: Direction // Added 15M trend
+  trend5m: Direction // Added 5M trend
   isChopRange: boolean
   volatility: {
     atr: number
@@ -33,6 +35,7 @@ interface MarketData {
   }
   timeframeScores: TimeframeScore[]
   confirmationTier: number
+  signalMode: "conservative" | "aggressive" | "none" // Added signal mode
   lastUpdate: number
   activeSignal?: TradingSignal
   rejectionReason?: string
@@ -164,10 +167,13 @@ export default function HomePage() {
           currentPrice={marketData.currentPrice}
           trend4h={marketData.trend4h}
           trend1h={marketData.trend1h}
+          trend15m={marketData.trend15m} // Pass 15M trend
+          trend5m={marketData.trend5m} // Pass 5M trend
           session={marketData.currentSession}
           isChopRange={marketData.isChopRange}
           volatilityScore={marketData.volatility.volatilityScore}
           confirmationTier={marketData.confirmationTier}
+          signalMode={marketData.signalMode} // Pass signal mode
           isMarketOpen={marketData.isMarketOpen}
           marketStatusMessage={marketData.marketStatusMessage}
           newsFilterActive={marketData.newsFilterActive}
@@ -196,6 +202,7 @@ export default function HomePage() {
             signal={marketData.activeSignal || null}
             currentPrice={marketData.currentPrice}
             rejectionReason={marketData.rejectionReason}
+            signalMode={marketData.signalMode} // Pass signal mode to card
           />
           <EntryInstructionsCard />
         </div>
@@ -211,7 +218,7 @@ export default function HomePage() {
           </p>
           <p className="mt-2 text-xs text-muted-foreground">
             🚀 Features: Performance Tracking • AI Confidence Scoring • Market Context Intelligence • Advanced Trade
-            Management
+            Management • Dual-Mode Strategy
           </p>
         </div>
       </main>
