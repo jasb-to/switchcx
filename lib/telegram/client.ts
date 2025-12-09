@@ -93,6 +93,12 @@ Market conditions are building. Monitor for further confirmations.
     const modeEmoji = signal.metadata?.signalMode === "conservative" ? "🛡️" : "⚡"
     const modeLabel = signal.metadata?.signalMode === "conservative" ? "CONSERVATIVE" : "AGGRESSIVE"
 
+    const breakoutTypeEmoji = signal.breakoutZone.breakoutType === "trendline" ? "📐" : "📊"
+    const breakoutTypeLabel = signal.breakoutZone.breakoutType === "trendline" ? "TRENDLINE BREAK" : "ZONE BREAK"
+    const trendlineInfo = signal.breakoutZone.trendlineAngle
+      ? `\nAngle: ${signal.breakoutZone.trendlineAngle.toFixed(1)}°`
+      : ""
+
     return `
 ${emoji} *LIMIT ORDER READY* (3/4 Confirmations)
 
@@ -105,10 +111,10 @@ ${signal.tp2 ? `TP2 (3R): $${this.formatPrice(signal.tp2)}` : ""}
 
 ⏰ *Session*: ${session}
 
-🎯 *Breakout Zone*
+${breakoutTypeEmoji} *${breakoutTypeLabel}*
 Type: ${signal.breakoutZone.type.toUpperCase()}
 Level: $${this.formatPrice(signal.breakoutZone.level)}
-Strength: ${signal.breakoutZone.strength}/100
+Strength: ${signal.breakoutZone.strength}/100${trendlineInfo}
 
 📊 *Timeframe Confirmations*
 ${signal.timeframeScores
@@ -142,6 +148,12 @@ Place limit order and wait for final confirmation.
     const modeLabel = signal.metadata?.signalMode === "conservative" ? "CONSERVATIVE" : "AGGRESSIVE"
     const confidence = signal.metadata?.confidenceScore || 0
 
+    const breakoutTypeEmoji = signal.breakoutZone.breakoutType === "trendline" ? "📐" : "📊"
+    const breakoutTypeLabel = signal.breakoutZone.breakoutType === "trendline" ? "TRENDLINE BREAK" : "ZONE BREAK"
+    const trendlineInfo = signal.breakoutZone.trendlineAngle
+      ? `\nAngle: ${signal.breakoutZone.trendlineAngle.toFixed(1)}°`
+      : ""
+
     return `
 ${emoji} *ENTER NOW!* (4/4 Confirmations) ${emoji}
 
@@ -159,11 +171,11 @@ Chandelier Stop: $${this.formatPrice(signal.chandelierStop)}
 
 ⏰ *Session*: ${session}
 
-🎯 *Breakout Zone*
+${breakoutTypeEmoji} *${breakoutTypeLabel}*
 Type: ${signal.breakoutZone.type.toUpperCase()}
 Level: $${this.formatPrice(signal.breakoutZone.level)}
 Strength: ${signal.breakoutZone.strength}/100
-Touches: ${signal.breakoutZone.touches}
+Touches: ${signal.breakoutZone.touches}${trendlineInfo}
 
 📈 *Volatility*
 ATR: $${this.formatPrice(signal.volatility.atr)}

@@ -23,8 +23,10 @@ export interface TimeframeData {
 export interface BreakoutZone {
   level: number
   type: "resistance" | "support"
+  breakoutType: "horizontal" | "trendline"
   strength: number
   touches: number
+  trendlineAngle?: number
 }
 
 export interface ChandelierExit {
