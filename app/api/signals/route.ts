@@ -11,13 +11,18 @@ import { tradeHistoryManager } from "@/lib/database/trade-history"
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
-function calculateConfirmationTier(timeframeScores: any[]): number {
+function calculateConfirmationTier(timeframeScores: any[], trend4h: Direction, trend1h: Direction): number {
   const score4h = timeframeScores.find((s) => s.timeframe === "4h")
   const score1h = timeframeScores.find((s) => s.timeframe === "1h")
   const score15m = timeframeScores.find((s) => s.timeframe === "15m")
   const score5m = timeframeScores.find((s) => s.timeframe === "5m")
 
   if (!score4h || !score1h || !score15m || !score5m) return 0
+
+  // Higher timeframes must be aligned before any tier can be assigned
+  if (trend4h !== trend1h || trend4h === "ranging" || trend1h === "ranging") {
+    return 0
+  }
 
   let tier = 0
   if (score4h.score >= 3) tier++
@@ -135,7 +140,7 @@ export async function GET() {
     const volatility = tradingEngine.calculateVolatilityMetrics(marketData["1h"])
     const currentSession = getCurrentSession()
 
-    const confirmationTier = calculateConfirmationTier(enhancedTimeframeScores)
+    const confirmationTier = calculateConfirmationTier(enhancedTimeframeScores, trend4h, trend1h)
 
     console.log("[v0] Confirmation tier:", confirmationTier)
     console.log("[v0] Trends - 4h:", trend4h, "1h:", trend1h)
