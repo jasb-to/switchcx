@@ -100,10 +100,32 @@ export class TradingEngine {
       return "ranging"
     }
 
-    if (latestEMA50 > latestEMA200) {
-      return "bullish"
-    } else if (latestEMA50 < latestEMA200) {
+    const recentCandles = candles.slice(-10) // Last 10 candles
+    const currentPrice = candles[candles.length - 1].close
+
+    // Count bullish vs bearish candles in recent price action
+    const bullishCandles = recentCandles.filter((c) => c.close > c.open).length
+    const bearishCandles = recentCandles.filter((c) => c.close < c.open).length
+
+    // Check if price is trending away from the EMA positioning
+    const priceAboveEMA50 = currentPrice > latestEMA50
+    const priceAboveEMA200 = currentPrice > latestEMA200
+
+    // Momentum override: if EMAs say bearish but price action shows bullish momentum
+    if (latestEMA50 < latestEMA200) {
+      // EMAs say bearish, but check for bullish momentum
+      if (priceAboveEMA50 && priceAboveEMA200 && bullishCandles >= 7) {
+        console.log("[v0] Momentum override: detecting early bullish shift despite bearish EMAs")
+        return "bullish"
+      }
       return "bearish"
+    } else if (latestEMA50 > latestEMA200) {
+      // EMAs say bullish, but check for bearish momentum
+      if (!priceAboveEMA50 && !priceAboveEMA200 && bearishCandles >= 7) {
+        console.log("[v0] Momentum override: detecting early bearish shift despite bullish EMAs")
+        return "bearish"
+      }
+      return "bullish"
     }
 
     return "ranging"
