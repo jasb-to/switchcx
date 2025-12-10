@@ -89,9 +89,6 @@ export class TradingEngine {
       return "ranging"
     }
 
-    // Use different EMAs based on mode
-    // Conservative: 50/200 (slower, more confirmed trends)
-    // Aggressive: 8/21 (faster, catches early momentum)
     const fastPeriod = mode === "aggressive" ? 8 : 50
     const slowPeriod = mode === "aggressive" ? 21 : 200
 
@@ -108,26 +105,21 @@ export class TradingEngine {
     const recentCandles = candles.slice(-10)
     const currentPrice = candles[candles.length - 1].close
 
-    // Count bullish vs bearish candles in recent price action
     const bullishCandles = recentCandles.filter((c) => c.close > c.open).length
     const bearishCandles = recentCandles.filter((c) => c.close < c.open).length
 
-    // Check if price is trending away from the EMA positioning
     const priceAboveEMAFast = currentPrice > latestEMAFast
     const priceAboveEMASlow = currentPrice > latestEMASlow
 
     const emaSpread = Math.abs(latestEMAFast - latestEMASlow) / latestEMASlow
     const emasStronglyAligned = emaSpread > 0.003
 
-    // If EMAs are strongly aligned in one direction, trust them
     if (emasStronglyAligned) {
       return latestEMAFast > latestEMASlow ? "bullish" : "bearish"
     }
 
-    // Momentum override: if EMAs say bearish but price action shows bullish momentum
     if (latestEMAFast < latestEMASlow) {
-      // EMAs say bearish, but check for bullish momentum
-      if (priceAboveEMAFast && bullishCandles >= 5) {
+      if (priceAboveEMAFast && bullishCandles >= 6) {
         console.log(
           `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bullish shift (${bullishCandles}/10 bullish candles)`,
         )
@@ -135,8 +127,7 @@ export class TradingEngine {
       }
       return "bearish"
     } else if (latestEMAFast > latestEMASlow) {
-      // EMAs say bullish, but check for bearish momentum
-      if (!priceAboveEMAFast && bearishCandles >= 5) {
+      if (!priceAboveEMAFast && bearishCandles >= 6) {
         console.log(
           `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bearish shift (${bearishCandles}/10 bearish candles)`,
         )
@@ -275,6 +266,22 @@ export class TradingEngine {
     const trend1h = conservativeMode ? trend1h_conservative : trend1h_aggressive
     const trend15m = aggressiveMode ? trend15m_aggressive : this.detectTrend(marketData["15m"], "conservative")
     const trend5m = aggressiveMode ? trend5m_aggressive : this.detectTrend(marketData["5m"], "conservative")
+
+    if (signalMode === "aggressive") {
+      // Check if 1H trend just flipped (last 3 candles must confirm)
+      const candles1h = marketData["1h"]
+      const recentCandles1h = candles1h.slice(-3)
+
+      const allBullish = recentCandles1h.every((c) => c.close > c.open)
+      const allBearish = recentCandles1h.every((c) => c.close < c.open)
+
+      if (!allBullish && !allBearish && trend1h_aggressive !== "ranging") {
+        console.log("[v0] Aggressive mode - 1H trend not stable (mixed candles in last 3), rejecting signal")
+        return null
+      }
+
+      console.log("[v0] Aggressive mode - 1H trend stability confirmed")
+    }
 
     // No need for complex score requirements - the breakout is the key signal
 

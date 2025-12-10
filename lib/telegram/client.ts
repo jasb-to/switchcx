@@ -1,6 +1,6 @@
 // Telegram bot client for sending trading alerts
 
-import type { TradingSignal, TimeframeScore } from "../types/trading"
+import type { TradingSignal, TimeframeScore, SignalConfidence } from "../types/trading"
 import { getSessionLabel } from "../strategy/session-filter"
 
 interface TelegramAlert {
@@ -15,12 +15,13 @@ interface TelegramAlert {
     | "status"
     | "get_ready"
     | "limit_order"
-    | "reversal" // Added reversal alert type
+    | "reversal"
   signal?: TradingSignal
   message?: string
   price?: number
   trend?: string
   timeframeScores?: TimeframeScore[]
+  confidence?: SignalConfidence // Added confidence parameter
 }
 
 class TelegramClient {
@@ -88,7 +89,7 @@ Market conditions are building. Monitor for further confirmations.
     `.trim()
   }
 
-  private buildLimitOrderMessage(signal: TradingSignal): string {
+  private buildLimitOrderMessage(signal: TradingSignal, confidence?: SignalConfidence): string {
     const direction = signal.direction.toUpperCase()
     const positionType = signal.direction === "bullish" ? "LONG" : "SHORT"
     const emoji = signal.direction === "bullish" ? "🟢" : "🔴"
@@ -96,6 +97,11 @@ Market conditions are building. Monitor for further confirmations.
 
     const modeEmoji = signal.metadata?.signalMode === "conservative" ? "🛡️" : "⚡"
     const modeLabel = signal.metadata?.signalMode === "conservative" ? "CONSERVATIVE" : "AGGRESSIVE"
+
+    const expectedWinRate = signal.metadata?.signalMode === "conservative" ? "65-75%" : "55-65%"
+
+    const confidenceScore = confidence?.score || 0
+    const confidenceLabel = confidenceScore >= 8 ? "🟢 STRONG" : confidenceScore >= 6 ? "🟡 GOOD" : "🟠 MODERATE"
 
     const breakoutTypeEmoji = signal.breakoutZone.breakoutType === "trendline" ? "📐" : "📊"
     const breakoutTypeLabel = signal.breakoutZone.breakoutType === "trendline" ? "TRENDLINE BREAK" : "ZONE BREAK"
@@ -107,6 +113,9 @@ Market conditions are building. Monitor for further confirmations.
 ${emoji} *LIMIT ORDER READY* (3/4 Confirmations)
 
 ${modeEmoji} *Mode*: ${modeLabel}
+📊 *Confidence*: ${confidenceScore}/10 ${confidenceLabel}
+🎯 *Expected Win Rate*: ${expectedWinRate}
+
 Direction: ${direction} (${positionType})
 Entry Zone: $${this.formatPrice(signal.entryPrice)}
 Stop Loss: $${this.formatPrice(signal.stopLoss)}
@@ -130,15 +139,15 @@ ${signal.timeframeScores
 
 ${
   signal.metadata?.signalMode === "conservative"
-    ? "🛡️ High probability - All major timeframes aligned"
-    : "⚡ Early entry - Lower timeframes leading"
+    ? "🛡️ High-probability late entry - All major timeframes aligned"
+    : "⚡ Early momentum entry - Lower timeframes leading, higher risk"
 }
 
 Place limit order and wait for final confirmation.
     `.trim()
   }
 
-  private buildEntryMessage(signal: TradingSignal): string {
+  private buildEntryMessage(signal: TradingSignal, confidence?: SignalConfidence): string {
     const direction = signal.direction.toUpperCase()
     const positionType = signal.direction === "bullish" ? "LONG" : "SHORT"
     const emoji = signal.direction === "bullish" ? "🟢" : "🔴"
@@ -150,7 +159,16 @@ Place limit order and wait for final confirmation.
 
     const modeEmoji = signal.metadata?.signalMode === "conservative" ? "🛡️" : "⚡"
     const modeLabel = signal.metadata?.signalMode === "conservative" ? "CONSERVATIVE" : "AGGRESSIVE"
-    const confidence = signal.metadata?.confidenceScore || 0
+
+    const expectedWinRate = signal.metadata?.signalMode === "conservative" ? "65-75%" : "55-65%"
+    const probabilityLabel =
+      signal.metadata?.signalMode === "conservative" ? "HIGH PROBABILITY" : "MODERATE PROBABILITY"
+    const modeDescription =
+      signal.metadata?.signalMode === "conservative"
+        ? "All major timeframes aligned"
+        : "Catching early momentum - Higher risk/reward"
+
+    const confidenceScore = confidence?.score || 0
 
     const breakoutTypeEmoji = signal.breakoutZone.breakoutType === "trendline" ? "📐" : "📊"
     const breakoutTypeLabel = signal.breakoutZone.breakoutType === "trendline" ? "TRENDLINE BREAK" : "ZONE BREAK"
@@ -164,7 +182,8 @@ ${emoji} *ENTER NOW!* (4/4 Confirmations) ${emoji}
 🚀 *XAUUSD ${positionType} SIGNAL* (${direction})
 
 ${modeEmoji} *Mode*: ${modeLabel}
-📊 *Confidence*: ${confidence}/10
+📊 *Confidence*: ${confidenceScore}/10
+🎯 *Expected Win Rate*: ${expectedWinRate}
 
 📊 *Entry Details*
 Entry: $${this.formatPrice(signal.entryPrice)}
@@ -195,11 +214,7 @@ ${signal.timeframeScores
   })
   .join("\n")}
 
-${
-  signal.metadata?.signalMode === "conservative"
-    ? "🛡️ HIGH PROBABILITY - All major timeframes aligned\nExpected win rate: 65-75%"
-    : "⚡ EARLY ENTRY - Catching momentum shift\nExpected win rate: 55-65%"
-}
+${modeEmoji} *${probabilityLabel}* - ${modeDescription}
 
 ${signal.tp1 && signal.tp2 ? `💰 Risk/Reward - TP1: 1:${rr1.toFixed(1)}, TP2: 1:${rr2.toFixed(1)}` : ""}
 
@@ -318,13 +333,13 @@ The market has moved against the trade setup.
 
       case "limit_order":
         if (alert.signal) {
-          message = this.buildLimitOrderMessage(alert.signal)
+          message = this.buildLimitOrderMessage(alert.signal, alert.confidence)
         }
         break
 
       case "entry":
         if (alert.signal) {
-          message = this.buildEntryMessage(alert.signal)
+          message = this.buildEntryMessage(alert.signal, alert.confidence)
         }
         break
 

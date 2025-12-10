@@ -9,6 +9,8 @@ import { getGoldMarketStatus } from "@/lib/utils/market-hours"
 import { getMarketContext, shouldAvoidTrading } from "@/lib/market-context/intelligence"
 import { tradeHistoryManager } from "@/lib/database/trade-history"
 import type { TradeHistory } from "@/lib/types/trading"
+import { calculateSignalConfidence } from "@/lib/strategy/confidence-scorer"
+import { calculateChandelierExit } from "@/lib/strategy/indicators"
 
 export const maxDuration = 60
 export const dynamic = "force-dynamic"
@@ -321,9 +323,41 @@ export async function GET(request: NextRequest) {
           console.log("[v0] 📋 Sending TIER 3 alert (Limit Order)...")
           const signal = await tradingEngine.generateSignal(marketData, currentPrice)
           if (signal) {
+            const enhancedTimeframeScores = timeframeScores.map((score) => {
+              const candles = marketData[score.timeframe]
+              const chandelier = calculateChandelierExit(candles, 22, 3)
+              return {
+                ...score,
+                trendDirection: tradingEngine.detectTrend(candles),
+                chandelierLong: chandelier.stopLong[chandelier.stopLong.length - 1],
+                chandelierShort: chandelier.stopShort[chandelier.stopShort.length - 1],
+              }
+            })
+
+            let signalConfidence = calculateSignalConfidence(signal, marketContext, enhancedTimeframeScores)
+
+            // Adjust confidence for aggressive mode (reduce by 2 points)
+            if (currentMode === "aggressive") {
+              signalConfidence = {
+                ...signalConfidence,
+                score: Math.max(5, signalConfidence.score - 2),
+                recommendation: signalConfidence.score >= 7 ? "take" : "consider",
+              }
+            }
+
+            console.log(
+              "[v0] Signal confidence:",
+              signalConfidence.score,
+              "- Recommendation:",
+              signalConfidence.recommendation,
+              "- Mode:",
+              currentMode,
+            )
+
             await sendTelegramAlert({
               type: "limit_order",
               signal,
+              confidence: signalConfidence, // Pass confidence to alert
             })
             console.log("[v0] ✅ TIER 3 alert sent successfully")
             lastActiveSignal = signal
@@ -348,9 +382,41 @@ export async function GET(request: NextRequest) {
           console.log("[v0] 🚀 Sending TIER 4 alert (ENTER NOW)...")
           const signal = await tradingEngine.generateSignal(marketData, currentPrice)
           if (signal) {
+            const enhancedTimeframeScores = timeframeScores.map((score) => {
+              const candles = marketData[score.timeframe]
+              const chandelier = calculateChandelierExit(candles, 22, 3)
+              return {
+                ...score,
+                trendDirection: tradingEngine.detectTrend(candles),
+                chandelierLong: chandelier.stopLong[chandelier.stopLong.length - 1],
+                chandelierShort: chandelier.stopShort[chandelier.stopShort.length - 1],
+              }
+            })
+
+            let signalConfidence = calculateSignalConfidence(signal, marketContext, enhancedTimeframeScores)
+
+            // Adjust confidence for aggressive mode (reduce by 2 points)
+            if (currentMode === "aggressive") {
+              signalConfidence = {
+                ...signalConfidence,
+                score: Math.max(5, signalConfidence.score - 2),
+                recommendation: signalConfidence.score >= 7 ? "take" : "consider",
+              }
+            }
+
+            console.log(
+              "[v0] Signal confidence:",
+              signalConfidence.score,
+              "- Recommendation:",
+              signalConfidence.recommendation,
+              "- Mode:",
+              currentMode,
+            )
+
             await sendTelegramAlert({
               type: "entry",
               signal,
+              confidence: signalConfidence, // Pass confidence to alert
             })
             console.log("[v0] ✅ TIER 4 alert sent successfully")
             lastActiveSignal = signal
