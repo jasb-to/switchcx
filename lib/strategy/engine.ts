@@ -62,10 +62,9 @@ export class TradingEngine {
     const latestADX = adx[adx.length - 1]
     const latestVolume = latestCandle.volume
 
-    // Criteria checks
     const criteria = {
-      adx: !isNaN(latestADX) && latestADX > (timeframe === "1h" ? 15 : 18),
-      volume: latestVolume > avgVolume * 1.2,
+      adx: !isNaN(latestADX) && latestADX > 12,
+      volume: latestVolume > avgVolume * 1.0,
       emaAlignment: !isNaN(latestEMA50) && !isNaN(latestEMA200),
       trendDirection:
         !isNaN(latestEMA50) &&
@@ -106,7 +105,7 @@ export class TradingEngine {
       return "ranging"
     }
 
-    const recentCandles = candles.slice(-10) // Last 10 candles
+    const recentCandles = candles.slice(-10)
     const currentPrice = candles[candles.length - 1].close
 
     // Count bullish vs bearish candles in recent price action
@@ -117,23 +116,29 @@ export class TradingEngine {
     const priceAboveEMAFast = currentPrice > latestEMAFast
     const priceAboveEMASlow = currentPrice > latestEMASlow
 
+    const emaSpread = Math.abs(latestEMAFast - latestEMASlow) / latestEMASlow
+    const emasStronglyAligned = emaSpread > 0.003
+
+    // If EMAs are strongly aligned in one direction, trust them
+    if (emasStronglyAligned) {
+      return latestEMAFast > latestEMASlow ? "bullish" : "bearish"
+    }
+
     // Momentum override: if EMAs say bearish but price action shows bullish momentum
     if (latestEMAFast < latestEMASlow) {
       // EMAs say bearish, but check for bullish momentum
-      // Lowered threshold to 5 out of 10 candles (50%) and only require price above fast EMA
       if (priceAboveEMAFast && bullishCandles >= 5) {
         console.log(
-          `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bullish shift despite bearish EMAs (${bullishCandles}/10 bullish candles)`,
+          `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bullish shift (${bullishCandles}/10 bullish candles)`,
         )
         return "bullish"
       }
       return "bearish"
     } else if (latestEMAFast > latestEMASlow) {
       // EMAs say bullish, but check for bearish momentum
-      // Lowered threshold to 5 out of 10 candles (50%) and only require price below fast EMA
       if (!priceAboveEMAFast && bearishCandles >= 5) {
         console.log(
-          `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bearish shift despite bullish EMAs (${bearishCandles}/10 bearish candles)`,
+          `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bearish shift (${bearishCandles}/10 bearish candles)`,
         )
         return "bearish"
       }
@@ -271,36 +276,11 @@ export class TradingEngine {
     const trend15m = aggressiveMode ? trend15m_aggressive : this.detectTrend(marketData["15m"], "conservative")
     const trend5m = aggressiveMode ? trend5m_aggressive : this.detectTrend(marketData["5m"], "conservative")
 
-    const requiredStrongConfirmations = conservativeMode ? 2 : 1
-    const requiredModerateConfirmations = conservativeMode ? 2 : 3
-
-    const strongConfirmations = [
-      score4h.score >= 3,
-      score1h.score >= 3,
-      score15m.score >= 3,
-      score5m.score >= 3,
-    ].filter(Boolean).length
-    const moderateConfirmations = [
-      score4h.score >= 2,
-      score1h.score >= 2,
-      score15m.score >= 2,
-      score5m.score >= 2,
-    ].filter(Boolean).length
-
-    if (strongConfirmations < requiredStrongConfirmations && moderateConfirmations < requiredModerateConfirmations) {
-      console.log("[v0] Insufficient confirmations for", signalMode, "mode", {
-        required: conservativeMode ? "2 strong or 2 moderate" : "1 strong or 3 moderate",
-        score4h: score4h.score,
-        score1h: score1h.score,
-        score15m: score15m.score,
-        score5m: score5m.score,
-      })
-      return null
-    }
+    // No need for complex score requirements - the breakout is the key signal
 
     const isChop = this.detectChopRange(marketData["1h"])
-    if (isChop && moderateConfirmations < 2) {
-      console.log("[v0] Market in chop range with insufficient confirmations")
+    if (isChop) {
+      console.log("[v0] Market in chop range - signal rejected")
       return null
     }
 
@@ -333,12 +313,12 @@ export class TradingEngine {
     }
 
     const candles5m = marketData["5m"]
-    const confirmed5m =
-      (validBreakout.direction === "bullish" && (trend5m === "bullish" || trend5m === "ranging")) ||
-      (validBreakout.direction === "bearish" && (trend5m === "bearish" || trend5m === "ranging"))
+    const stronglyOpposing =
+      (validBreakout.direction === "bullish" && trend5m === "bearish") ||
+      (validBreakout.direction === "bearish" && trend5m === "bullish")
 
-    if (!confirmed5m) {
-      console.log("[v0] 5m trend alignment failed - 5m trend:", trend5m, "signal direction:", validBreakout.direction)
+    if (stronglyOpposing) {
+      console.log("[v0] 5m trend strongly opposing - signal rejected")
       return null
     }
 

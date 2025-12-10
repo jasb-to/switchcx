@@ -142,17 +142,45 @@ export function checkTrendlineBreakout(
 
   const currentIndex = candles.length - 1
   const lastCandle = candles[candles.length - 1]
+  const last5Candles = candles.slice(-5)
 
   for (const trendline of trendlines) {
     const expectedPrice = trendline.slope * currentIndex + trendline.intercept
-    const previousExpectedPrice = trendline.slope * (currentIndex - 1) + trendline.intercept
+    const breakoutThreshold = expectedPrice * 0.003
 
     // Descending trendline breakout (bullish)
     if (trendline.type === "descending") {
-      const wasBelow = lastCandle.close < previousExpectedPrice
-      const isAbove = currentPrice > expectedPrice * 1.002 // 0.2% above trendline
+      const isAbove = currentPrice > expectedPrice + breakoutThreshold
 
-      if (wasBelow && isAbove) {
+      const wasRecentlyBelow = last5Candles.some((c, idx) => {
+        const candleIndex = currentIndex - (last5Candles.length - 1 - idx)
+        const trendlinePrice = trendline.slope * candleIndex + trendline.intercept
+        return c.close < trendlinePrice
+      })
+
+      const inBreakoutMove = currentPrice > expectedPrice && lastCandle.close > expectedPrice
+
+      if (wasRecentlyBelow && isAbove) {
+        console.log(
+          "[v0] Bullish trendline breakout detected - Price:",
+          currentPrice,
+          "Trendline:",
+          expectedPrice.toFixed(2),
+        )
+        return {
+          isBreakout: true,
+          direction: "bullish",
+          trendline,
+        }
+      }
+
+      if (inBreakoutMove && currentPrice > expectedPrice * 1.005) {
+        console.log(
+          "[v0] Bullish trendline momentum detected - Price:",
+          currentPrice,
+          "Trendline:",
+          expectedPrice.toFixed(2),
+        )
         return {
           isBreakout: true,
           direction: "bullish",
@@ -163,10 +191,37 @@ export function checkTrendlineBreakout(
 
     // Ascending trendline breakdown (bearish)
     if (trendline.type === "ascending") {
-      const wasAbove = lastCandle.close > previousExpectedPrice
-      const isBelow = currentPrice < expectedPrice * 0.998 // 0.2% below trendline
+      const isBelow = currentPrice < expectedPrice - breakoutThreshold
 
-      if (wasAbove && isBelow) {
+      const wasRecentlyAbove = last5Candles.some((c, idx) => {
+        const candleIndex = currentIndex - (last5Candles.length - 1 - idx)
+        const trendlinePrice = trendline.slope * candleIndex + trendline.intercept
+        return c.close > trendlinePrice
+      })
+
+      const inBreakdownMove = currentPrice < expectedPrice && lastCandle.close < expectedPrice
+
+      if (wasRecentlyAbove && isBelow) {
+        console.log(
+          "[v0] Bearish trendline breakdown detected - Price:",
+          currentPrice,
+          "Trendline:",
+          expectedPrice.toFixed(2),
+        )
+        return {
+          isBreakout: true,
+          direction: "bearish",
+          trendline,
+        }
+      }
+
+      if (inBreakdownMove && currentPrice < expectedPrice * 0.995) {
+        console.log(
+          "[v0] Bearish trendline momentum detected - Price:",
+          currentPrice,
+          "Trendline:",
+          expectedPrice.toFixed(2),
+        )
         return {
           isBreakout: true,
           direction: "bearish",
@@ -266,21 +321,34 @@ export function checkBreakout(
   currentPrice: number,
   previousCandles: Candle[],
   zones: BreakoutZone[],
-  sensitivity = 0.0002, // 0.02% tolerance for near-breakout
+  sensitivity = 0.003, // Increased from 0.0002 to 0.003 (0.3% = ~$12 for gold at $4,200)
 ): { isBreakout: boolean; direction: Direction; zone?: BreakoutZone } {
   if (zones.length === 0 || previousCandles.length === 0) {
     return { isBreakout: false, direction: "ranging" }
   }
 
   const lastCandle = previousCandles[previousCandles.length - 1]
+  const last5Candles = previousCandles.slice(-5)
 
   // Check for resistance breakout (bullish)
   for (const zone of zones) {
     if (zone.type === "resistance") {
-      const isNearOrAbove = currentPrice >= zone.level * (1 - sensitivity)
-      const wasBelow = lastCandle.close < zone.level
+      const isAbove = currentPrice >= zone.level * (1 + sensitivity * 0.5) // Must be 0.15% above
 
-      if (wasBelow && isNearOrAbove && zone.touches >= 2) {
+      const wasRecentlyBelow = last5Candles.some((c) => c.close < zone.level * 1.002)
+      const strongVolume = lastCandle.volume > 0
+
+      const inBreakoutMove = currentPrice > zone.level && lastCandle.close > zone.level
+
+      if ((wasRecentlyBelow && isAbove && zone.touches >= 2) || (inBreakoutMove && strongVolume && zone.touches >= 2)) {
+        console.log(
+          "[v0] Bullish breakout detected - Price:",
+          currentPrice,
+          "Zone:",
+          zone.level,
+          "Type:",
+          inBreakoutMove ? "momentum" : "crossover",
+        )
         return {
           isBreakout: true,
           direction: "bullish",
@@ -291,10 +359,25 @@ export function checkBreakout(
 
     // Check for support breakdown (bearish)
     if (zone.type === "support") {
-      const isNearOrBelow = currentPrice <= zone.level * (1 + sensitivity)
-      const wasAbove = lastCandle.close > zone.level
+      const isBelow = currentPrice <= zone.level * (1 - sensitivity * 0.5) // Must be 0.15% below
 
-      if (wasAbove && isNearOrBelow && zone.touches >= 2) {
+      const wasRecentlyAbove = last5Candles.some((c) => c.close > zone.level * 0.998)
+      const strongVolume = lastCandle.volume > 0
+
+      const inBreakdownMove = currentPrice < zone.level && lastCandle.close < zone.level
+
+      if (
+        (wasRecentlyAbove && isBelow && zone.touches >= 2) ||
+        (inBreakdownMove && strongVolume && zone.touches >= 2)
+      ) {
+        console.log(
+          "[v0] Bearish breakdown detected - Price:",
+          currentPrice,
+          "Zone:",
+          zone.level,
+          "Type:",
+          inBreakdownMove ? "momentum" : "crossover",
+        )
         return {
           isBreakout: true,
           direction: "bearish",
