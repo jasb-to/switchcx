@@ -152,7 +152,7 @@ class TwelveDataClient {
           headers: {
             Accept: "application/json",
           },
-          next: { revalidate: 900 }, // Cache for 15 minutes to reduce API calls
+          next: { revalidate: 300 }, // 5 minutes cache during market hours
         })
 
         if (!response.ok) {

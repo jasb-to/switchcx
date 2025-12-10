@@ -120,18 +120,20 @@ export class TradingEngine {
     // Momentum override: if EMAs say bearish but price action shows bullish momentum
     if (latestEMAFast < latestEMASlow) {
       // EMAs say bearish, but check for bullish momentum
-      if (priceAboveEMAFast && priceAboveEMASlow && bullishCandles >= 7) {
+      // Lowered threshold to 5 out of 10 candles (50%) and only require price above fast EMA
+      if (priceAboveEMAFast && bullishCandles >= 5) {
         console.log(
-          `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bullish shift despite bearish EMAs`,
+          `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bullish shift despite bearish EMAs (${bullishCandles}/10 bullish candles)`,
         )
         return "bullish"
       }
       return "bearish"
     } else if (latestEMAFast > latestEMASlow) {
       // EMAs say bullish, but check for bearish momentum
-      if (!priceAboveEMAFast && !priceAboveEMASlow && bearishCandles >= 7) {
+      // Lowered threshold to 5 out of 10 candles (50%) and only require price below fast EMA
+      if (!priceAboveEMAFast && bearishCandles >= 5) {
         console.log(
-          `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bearish shift despite bullish EMAs`,
+          `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bearish shift despite bullish EMAs (${bearishCandles}/10 bearish candles)`,
         )
         return "bearish"
       }

@@ -25,29 +25,44 @@ function calculateAlertTier(scores: { timeframe: Timeframe; score: number }[], m
 
   if (!score4h || !score1h || !score15m || !score5m) return 0
 
-  // Check timeframe alignment for conservative mode
   const trend4h = tradingEngine.detectTrend(marketData["4h"])
   const trend1h = tradingEngine.detectTrend(marketData["1h"])
   const trend15m = tradingEngine.detectTrend(marketData["15m"])
   const trend5m = tradingEngine.detectTrend(marketData["5m"])
 
-  // Conservative mode: 4H and 1H must align
   const conservativeMode = trend4h === trend1h && trend4h !== "ranging"
-
-  // Aggressive mode: 1H, 15M, 5M must align (even if 4H disagrees)
   const aggressiveMode = trend1h === trend15m && trend1h === trend5m && trend1h !== "ranging"
 
-  if (!conservativeMode && !aggressiveMode) {
-    return 0 // No alignment, no signal
+  // Count strong timeframes
+  const strongTimeframes = [score4h.score >= 3, score1h.score >= 2, score15m.score >= 2, score5m.score >= 2].filter(
+    Boolean,
+  ).length
+
+  // Tier 1: At least 2 strong timeframes
+  if (strongTimeframes >= 2) {
+    // Tier 2: Partial alignment forming
+    const partialAlignment =
+      (trend1h === trend15m && trend1h !== "ranging") ||
+      (trend15m === trend5m && trend15m !== "ranging") ||
+      (trend4h === trend1h && trend4h !== "ranging")
+
+    if (partialAlignment && strongTimeframes >= 2) {
+      // Tier 3-4: Full alignment check
+      if (aggressiveMode || conservativeMode) {
+        let fullTier = 0
+        if (score4h.score >= 3) fullTier++
+        if (score1h.score >= 2) fullTier++
+        if (score15m.score >= 1) fullTier++
+        if (score5m.score >= 1) fullTier++
+
+        return fullTier >= 4 ? 4 : Math.max(3, fullTier)
+      }
+      return 2
+    }
+    return 1
   }
 
-  let tier = 0
-  if (score4h.score >= 3) tier++
-  if (score1h.score >= 2) tier++
-  if (score15m.score >= 1) tier++
-  if (score5m.score >= 1) tier++
-
-  return tier
+  return 0
 }
 
 export async function GET(request: NextRequest) {

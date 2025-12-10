@@ -26,7 +26,10 @@ function calculateConfirmationTier(
 
   if (!score4h || !score1h || !score15m || !score5m) return { tier: 0, mode: "none" }
 
+  // Check for conservative mode (4H + 1H alignment)
   const conservativeMode = trend4h === trend1h && trend4h !== "ranging" && trend1h !== "ranging"
+
+  // Check for aggressive mode (1H + 15M + 5M alignment)
   const aggressiveMode =
     trend1h !== "ranging" &&
     trend15m !== "ranging" &&
@@ -34,20 +37,49 @@ function calculateConfirmationTier(
     trend1h === trend15m &&
     trend1h === trend5m
 
-  if (!conservativeMode && !aggressiveMode) {
-    return { tier: 0, mode: "none" }
+  // Tier 1: Individual timeframe strength (no alignment required)
+  // At least 2 timeframes showing decent scores
+  const strongTimeframes = [score4h.score >= 3, score1h.score >= 2, score15m.score >= 2, score5m.score >= 2].filter(
+    Boolean,
+  ).length
+
+  if (strongTimeframes >= 2) {
+    // Tier 2: Partial alignment starting to form
+    // Either 2 adjacent timeframes aligning OR 3+ timeframes with decent scores
+    const partialAlignment =
+      (trend1h === trend15m && trend1h !== "ranging") ||
+      (trend15m === trend5m && trend15m !== "ranging") ||
+      (trend4h === trend1h && trend4h !== "ranging")
+
+    if (partialAlignment && strongTimeframes >= 2) {
+      // Tier 3: Better alignment but waiting for full confirmation
+      if (aggressiveMode && strongTimeframes >= 3) {
+        return { tier: 3, mode: "aggressive" }
+      }
+      if (conservativeMode && strongTimeframes >= 3) {
+        return { tier: 3, mode: "conservative" }
+      }
+      return { tier: 2, mode: aggressiveMode ? "aggressive" : conservativeMode ? "conservative" : "none" }
+    }
+
+    return { tier: 1, mode: "none" }
   }
 
-  let tier = 0
-  if (score4h.score >= 3) tier++
-  if (score1h.score >= 2) tier++
-  if (score15m.score >= 1) tier++
-  if (score5m.score >= 1) tier++
+  // Tier 4: Full alignment with all confirmations
+  if (conservativeMode || aggressiveMode) {
+    let tier = 0
+    if (score4h.score >= 3) tier++
+    if (score1h.score >= 2) tier++
+    if (score15m.score >= 1) tier++
+    if (score5m.score >= 1) tier++
 
-  return {
-    tier,
-    mode: conservativeMode ? "conservative" : "aggressive",
+    if (tier === 4) {
+      return { tier: 4, mode: conservativeMode ? "conservative" : "aggressive" }
+    }
+    return { tier: Math.max(2, tier), mode: conservativeMode ? "conservative" : "aggressive" }
   }
+
+  return { tier: 0, mode: "none" }
 }
 
 export async function GET() {
