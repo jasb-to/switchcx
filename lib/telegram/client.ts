@@ -66,11 +66,15 @@ class TelegramClient {
     return tier
   }
 
-  private buildGetReadyMessage(timeframeScores: TimeframeScore[], price: number): string {
+  private buildGetReadyMessage(timeframeScores: TimeframeScore[], price: number, trend?: string): string {
+    const directionEmoji = trend === "bullish" ? "🟢" : trend === "bearish" ? "🔴" : "⚪"
+    const directionLabel = trend === "bullish" ? "LONG" : trend === "bearish" ? "SHORT" : "RANGING"
+    const directionLine = trend && trend !== "ranging" ? `\n\n${directionEmoji} *Direction*: ${directionLabel}` : ""
+
     return `
 ⚠️ *GET READY ALERT* (2/4 Confirmations)
 
-Current Price: $${this.formatPrice(price)}
+Current Price: $${this.formatPrice(price)}${directionLine}
 
 📊 *Timeframe Scores*
 ${timeframeScores
@@ -308,7 +312,7 @@ The market has moved against the trade setup.
     switch (alert.type) {
       case "get_ready":
         if (alert.timeframeScores && alert.price) {
-          message = this.buildGetReadyMessage(alert.timeframeScores, alert.price)
+          message = this.buildGetReadyMessage(alert.timeframeScores, alert.price, alert.trend)
         }
         break
 
