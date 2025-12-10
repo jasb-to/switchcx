@@ -85,18 +85,24 @@ export class TradingEngine {
     }
   }
 
-  detectTrend(candles: Candle[]): Direction {
+  detectTrend(candles: Candle[], mode: "conservative" | "aggressive" = "conservative"): Direction {
     if (candles.length < 100) {
       return "ranging"
     }
 
-    const ema50 = calculateEMA(candles, 50)
-    const ema200 = calculateEMA(candles, 200)
+    // Use different EMAs based on mode
+    // Conservative: 50/200 (slower, more confirmed trends)
+    // Aggressive: 8/21 (faster, catches early momentum)
+    const fastPeriod = mode === "aggressive" ? 8 : 50
+    const slowPeriod = mode === "aggressive" ? 21 : 200
 
-    const latestEMA50 = ema50[ema50.length - 1]
-    const latestEMA200 = ema200[ema200.length - 1]
+    const emaFast = calculateEMA(candles, fastPeriod)
+    const emaSlow = calculateEMA(candles, slowPeriod)
 
-    if (isNaN(latestEMA50) || isNaN(latestEMA200)) {
+    const latestEMAFast = emaFast[emaFast.length - 1]
+    const latestEMASlow = emaSlow[emaSlow.length - 1]
+
+    if (isNaN(latestEMAFast) || isNaN(latestEMASlow)) {
       return "ranging"
     }
 
@@ -108,21 +114,25 @@ export class TradingEngine {
     const bearishCandles = recentCandles.filter((c) => c.close < c.open).length
 
     // Check if price is trending away from the EMA positioning
-    const priceAboveEMA50 = currentPrice > latestEMA50
-    const priceAboveEMA200 = currentPrice > latestEMA200
+    const priceAboveEMAFast = currentPrice > latestEMAFast
+    const priceAboveEMASlow = currentPrice > latestEMASlow
 
     // Momentum override: if EMAs say bearish but price action shows bullish momentum
-    if (latestEMA50 < latestEMA200) {
+    if (latestEMAFast < latestEMASlow) {
       // EMAs say bearish, but check for bullish momentum
-      if (priceAboveEMA50 && priceAboveEMA200 && bullishCandles >= 7) {
-        console.log("[v0] Momentum override: detecting early bullish shift despite bearish EMAs")
+      if (priceAboveEMAFast && priceAboveEMASlow && bullishCandles >= 7) {
+        console.log(
+          `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bullish shift despite bearish EMAs`,
+        )
         return "bullish"
       }
       return "bearish"
-    } else if (latestEMA50 > latestEMA200) {
+    } else if (latestEMAFast > latestEMASlow) {
       // EMAs say bullish, but check for bearish momentum
-      if (!priceAboveEMA50 && !priceAboveEMA200 && bearishCandles >= 7) {
-        console.log("[v0] Momentum override: detecting early bearish shift despite bullish EMAs")
+      if (!priceAboveEMAFast && !priceAboveEMASlow && bearishCandles >= 7) {
+        console.log(
+          `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bearish shift despite bullish EMAs`,
+        )
         return "bearish"
       }
       return "bullish"
@@ -206,32 +216,58 @@ export class TradingEngine {
       return null
     }
 
-    const trend4h = this.detectTrend(marketData["4h"])
-    const trend1h = this.detectTrend(marketData["1h"])
-    const trend15m = this.detectTrend(marketData["15m"])
-    const trend5m = this.detectTrend(marketData["5m"])
+    // Check conservative mode with 50/200 EMAs
+    const trend4h_conservative = this.detectTrend(marketData["4h"], "conservative")
+    const trend1h_conservative = this.detectTrend(marketData["1h"], "conservative")
 
-    const conservativeMode = trend4h === trend1h && trend4h !== "ranging" && trend1h !== "ranging"
+    const conservativeMode =
+      trend4h_conservative === trend1h_conservative &&
+      trend4h_conservative !== "ranging" &&
+      trend1h_conservative !== "ranging"
+
+    // Check aggressive mode with 8/21 EMAs
+    const trend1h_aggressive = this.detectTrend(marketData["1h"], "aggressive")
+    const trend15m_aggressive = this.detectTrend(marketData["15m"], "aggressive")
+    const trend5m_aggressive = this.detectTrend(marketData["5m"], "aggressive")
+
     const aggressiveMode =
       allowEarlyEntry &&
-      trend1h !== "ranging" &&
-      trend15m !== "ranging" &&
-      trend5m !== "ranging" &&
-      trend1h === trend15m &&
-      trend1h === trend5m
+      trend1h_aggressive !== "ranging" &&
+      trend15m_aggressive !== "ranging" &&
+      trend5m_aggressive !== "ranging" &&
+      trend1h_aggressive === trend15m_aggressive &&
+      trend1h_aggressive === trend5m_aggressive
 
     if (!conservativeMode && !aggressiveMode) {
       if (!conservativeMode) {
-        console.log("[v0] Conservative mode failed - 4H:", trend4h, "1H:", trend1h)
+        console.log(
+          "[v0] Conservative mode (50/200 EMA) failed - 4H:",
+          trend4h_conservative,
+          "1H:",
+          trend1h_conservative,
+        )
       }
       if (!aggressiveMode) {
-        console.log("[v0] Aggressive mode failed - 1H:", trend1h, "15M:", trend15m, "5M:", trend5m)
+        console.log(
+          "[v0] Aggressive mode (8/21 EMA) failed - 1H:",
+          trend1h_aggressive,
+          "15M:",
+          trend15m_aggressive,
+          "5M:",
+          trend5m_aggressive,
+        )
       }
       return null
     }
 
     const signalMode = conservativeMode ? "conservative" : "aggressive"
-    console.log("[v0] Signal mode:", signalMode)
+    console.log("[v0] Signal mode:", signalMode, signalMode === "conservative" ? "(50/200 EMA)" : "(8/21 EMA)")
+
+    // Use the trends from the appropriate mode for the rest of signal generation
+    const trend4h = conservativeMode ? trend4h_conservative : trend4h_conservative
+    const trend1h = conservativeMode ? trend1h_conservative : trend1h_aggressive
+    const trend15m = aggressiveMode ? trend15m_aggressive : this.detectTrend(marketData["15m"], "conservative")
+    const trend5m = aggressiveMode ? trend5m_aggressive : this.detectTrend(marketData["5m"], "conservative")
 
     const requiredStrongConfirmations = conservativeMode ? 2 : 1
     const requiredModerateConfirmations = conservativeMode ? 2 : 3
