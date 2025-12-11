@@ -210,8 +210,12 @@ export class BacktestAnalyzer {
     const currentFast = fastEMA[fastEMA.length - 1]
     const currentSlow = slowEMA[slowEMA.length - 1]
 
-    if (currentFast > currentSlow * 1.001) return "bullish"
-    if (currentFast < currentSlow * 0.999) return "bearish"
+    // Gold at $4200 needs at least $2 separation to be meaningful
+    const diff = currentFast - currentSlow
+    const threshold = 2.0 // $2 minimum difference for trend classification
+
+    if (diff > threshold) return "bullish"
+    if (diff < -threshold) return "bearish"
     return "ranging"
   }
 

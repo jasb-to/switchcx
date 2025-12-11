@@ -21,25 +21,30 @@ export function calculateSMA(candles: Candle[], period: number): number[] {
   return sma
 }
 
-export function calculateEMA(candles: Candle[], period: number): number[] {
+export function calculateEMA(data: Candle[] | number[], period: number): number[] {
   const ema: number[] = []
   const multiplier = 2 / (period + 1)
 
+  // Extract prices if Candle array, otherwise use as-is
+  const prices =
+    Array.isArray(data) && data.length > 0 && typeof data[0] === "object" && "close" in data[0]
+      ? (data as Candle[]).map((c) => c.close)
+      : (data as number[])
+
+  if (prices.length < period) {
+    return prices.map(() => Number.NaN)
+  }
+
   // Start with SMA for first value
   let sum = 0
-  for (let i = 0; i < period && i < candles.length; i++) {
-    sum += candles[i].close
+  for (let i = 0; i < period; i++) {
+    sum += prices[i]
   }
-
-  if (candles.length < period) {
-    return candles.map(() => Number.NaN)
-  }
-
   ema[period - 1] = sum / period
 
   // Calculate EMA for remaining values
-  for (let i = period; i < candles.length; i++) {
-    ema[i] = (candles[i].close - ema[i - 1]) * multiplier + ema[i - 1]
+  for (let i = period; i < prices.length; i++) {
+    ema[i] = (prices[i] - ema[i - 1]) * multiplier + ema[i - 1]
   }
 
   // Fill beginning with NaN
@@ -258,8 +263,8 @@ export function calculateMACD(
   const histogram: number[] = []
 
   // Calculate fast and slow EMAs
-  const fastEMA = calculateEMAFromPrices(prices, fastPeriod)
-  const slowEMA = calculateEMAFromPrices(prices, slowPeriod)
+  const fastEMA = calculateEMA(prices, fastPeriod)
+  const slowEMA = calculateEMA(prices, slowPeriod)
 
   // Calculate MACD line
   for (let i = 0; i < prices.length; i++) {
@@ -428,32 +433,4 @@ function calculateRSI(prices: number[], period = 14): number[] {
   rsi.unshift(Number.NaN)
 
   return rsi
-}
-
-function calculateEMAFromPrices(prices: number[], period: number): number[] {
-  const ema: number[] = []
-  const multiplier = 2 / (period + 1)
-
-  if (prices.length < period) {
-    return prices.map(() => Number.NaN)
-  }
-
-  // Start with SMA for first value
-  let sum = 0
-  for (let i = 0; i < period; i++) {
-    sum += prices[i]
-  }
-  ema[period - 1] = sum / period
-
-  // Calculate EMA for remaining values
-  for (let i = period; i < prices.length; i++) {
-    ema[i] = (prices[i] - ema[i - 1]) * multiplier + ema[i - 1]
-  }
-
-  // Fill beginning with NaN
-  for (let i = 0; i < period - 1; i++) {
-    ema[i] = Number.NaN
-  }
-
-  return ema
 }
