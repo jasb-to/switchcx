@@ -227,3 +227,8 @@ class TwelveDataClient {
 }
 
 export const twelveDataClient = new TwelveDataClient()
+export const twelveDataAPI = {
+  getTimeSeriesData: (symbol: string, timeframe: Timeframe, outputSize: number) =>
+    twelveDataClient.fetchCandles(timeframe, outputSize),
+  getLatestPrice: () => twelveDataClient.getLatestPrice(),
+}

@@ -246,3 +246,214 @@ export function calculateVolume(candles: Candle[], period = 20): number {
 
   return avgVolume
 }
+
+export function calculateMACD(
+  prices: number[],
+  fastPeriod = 12,
+  slowPeriod = 26,
+  signalPeriod = 9,
+): { macd: number[]; signal: number[]; histogram: number[] } {
+  const macd: number[] = []
+  const signal: number[] = []
+  const histogram: number[] = []
+
+  // Calculate fast and slow EMAs
+  const fastEMA = calculateEMAFromPrices(prices, fastPeriod)
+  const slowEMA = calculateEMAFromPrices(prices, slowPeriod)
+
+  // Calculate MACD line
+  for (let i = 0; i < prices.length; i++) {
+    if (isNaN(fastEMA[i]) || isNaN(slowEMA[i])) {
+      macd.push(Number.NaN)
+    } else {
+      macd.push(fastEMA[i] - slowEMA[i])
+    }
+  }
+
+  // Calculate signal line (EMA of MACD)
+  const validMacd = macd.filter((v) => !isNaN(v))
+  if (validMacd.length < signalPeriod) {
+    return {
+      macd,
+      signal: macd.map(() => Number.NaN),
+      histogram: macd.map(() => Number.NaN),
+    }
+  }
+
+  // Start with SMA for first signal value
+  let sum = 0
+  let validCount = 0
+  for (let i = 0; i < macd.length && validCount < signalPeriod; i++) {
+    if (!isNaN(macd[i])) {
+      sum += macd[i]
+      validCount++
+      if (validCount === signalPeriod) {
+        signal[i] = sum / signalPeriod
+      } else {
+        signal[i] = Number.NaN
+      }
+    } else {
+      signal[i] = Number.NaN
+    }
+  }
+
+  // Calculate signal EMA for remaining values
+  const multiplier = 2 / (signalPeriod + 1)
+  for (let i = signalPeriod; i < macd.length; i++) {
+    if (isNaN(macd[i])) {
+      signal[i] = Number.NaN
+    } else {
+      signal[i] = (macd[i] - signal[i - 1]) * multiplier + signal[i - 1]
+    }
+  }
+
+  // Calculate histogram
+  for (let i = 0; i < macd.length; i++) {
+    if (isNaN(macd[i]) || isNaN(signal[i])) {
+      histogram.push(Number.NaN)
+    } else {
+      histogram.push(macd[i] - signal[i])
+    }
+  }
+
+  return { macd, signal, histogram }
+}
+
+export function calculateStochRSI(
+  prices: number[],
+  rsiPeriod = 14,
+  stochPeriod = 14,
+  kPeriod = 3,
+  dPeriod = 3,
+): { k: number[]; d: number[] } {
+  const k: number[] = []
+  const d: number[] = []
+
+  // Calculate RSI first
+  const rsi = calculateRSI(prices, rsiPeriod)
+
+  // Calculate Stochastic of RSI
+  for (let i = 0; i < rsi.length; i++) {
+    if (i < stochPeriod - 1 || isNaN(rsi[i])) {
+      k.push(Number.NaN)
+      continue
+    }
+
+    // Find highest and lowest RSI in period
+    let highestRSI = rsi[i]
+    let lowestRSI = rsi[i]
+
+    for (let j = 0; j < stochPeriod; j++) {
+      if (!isNaN(rsi[i - j])) {
+        highestRSI = Math.max(highestRSI, rsi[i - j])
+        lowestRSI = Math.min(lowestRSI, rsi[i - j])
+      }
+    }
+
+    const range = highestRSI - lowestRSI
+    if (range === 0) {
+      k.push(50)
+    } else {
+      k.push(((rsi[i] - lowestRSI) / range) * 100)
+    }
+  }
+
+  // Calculate %D (SMA of %K)
+  for (let i = 0; i < k.length; i++) {
+    if (i < dPeriod - 1 || isNaN(k[i])) {
+      d.push(Number.NaN)
+      continue
+    }
+
+    let sum = 0
+    let count = 0
+    for (let j = 0; j < dPeriod; j++) {
+      if (!isNaN(k[i - j])) {
+        sum += k[i - j]
+        count++
+      }
+    }
+
+    d.push(count > 0 ? sum / count : Number.NaN)
+  }
+
+  return { k, d }
+}
+
+function calculateRSI(prices: number[], period = 14): number[] {
+  const rsi: number[] = []
+  const gains: number[] = []
+  const losses: number[] = []
+
+  // Calculate price changes
+  for (let i = 1; i < prices.length; i++) {
+    const change = prices[i] - prices[i - 1]
+    gains.push(change > 0 ? change : 0)
+    losses.push(change < 0 ? Math.abs(change) : 0)
+  }
+
+  // Calculate RSI
+  for (let i = 0; i < gains.length; i++) {
+    if (i < period - 1) {
+      rsi.push(Number.NaN)
+      continue
+    }
+
+    let avgGain = 0
+    let avgLoss = 0
+
+    if (i === period - 1) {
+      // First average
+      for (let j = 0; j < period; j++) {
+        avgGain += gains[j]
+        avgLoss += losses[j]
+      }
+      avgGain /= period
+      avgLoss /= period
+    } else {
+      // Smoothed average
+      avgGain = (rsi[i - 1] * (period - 1) + gains[i]) / period
+      avgLoss = ((100 - rsi[i - 1]) * (period - 1) + losses[i]) / period
+    }
+
+    if (avgLoss === 0) {
+      rsi.push(100)
+    } else {
+      const rs = avgGain / avgLoss
+      rsi.push(100 - 100 / (1 + rs))
+    }
+  }
+
+  // Pad beginning with NaN
+  rsi.unshift(Number.NaN)
+
+  return rsi
+}
+
+function calculateEMAFromPrices(prices: number[], period: number): number[] {
+  const ema: number[] = []
+  const multiplier = 2 / (period + 1)
+
+  if (prices.length < period) {
+    return prices.map(() => Number.NaN)
+  }
+
+  // Start with SMA for first value
+  let sum = 0
+  for (let i = 0; i < period; i++) {
+    sum += prices[i]
+  }
+  ema[period - 1] = sum / period
+
+  // Calculate EMA for remaining values
+  for (let i = period; i < prices.length; i++) {
+    ema[i] = (prices[i] - ema[i - 1]) * multiplier + ema[i - 1]
+  }
+
+  // Fill beginning with NaN
+  for (let i = 0; i < period - 1; i++) {
+    ema[i] = Number.NaN
+  }
+
+  return ema
+}
