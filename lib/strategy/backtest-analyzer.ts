@@ -1,8 +1,5 @@
-// Backtest analyzer to test strategies on historical data
-
 import type { Candle, Timeframe, Direction } from "../types/trading"
-import { TradingEngine } from "./engine"
-import { calculateChandelierExit } from "./indicators"
+import { calculateEMA, calculateChandelierExit } from "./indicators"
 import { detectBreakoutZones, checkBreakout, detectTrendlines, checkTrendlineBreakout } from "./breakout-detector"
 
 interface BacktestResult {
@@ -32,36 +29,48 @@ interface BacktestSignal {
 }
 
 export class BacktestAnalyzer {
-  private engine = new TradingEngine()
-
   async runBacktest(
     marketData: Record<Timeframe, Candle[]>,
     mode: "conservative" | "aggressive",
   ): Promise<BacktestResult> {
-    console.log(`[v0] Starting backtest for ${mode} mode...`)
+    console.log(`[v0] ===== STARTING ${mode.toUpperCase()} BACKTEST =====`)
+    console.log(`[v0] 4H candles: ${marketData["4h"].length}`)
+    console.log(`[v0] 1H candles: ${marketData["1h"].length}`)
+    console.log(`[v0] 15M candles: ${marketData["15m"].length}`)
+    console.log(`[v0] 5M candles: ${marketData["5m"].length}`)
 
     const signals: BacktestSignal[] = []
     const candles1h = marketData["1h"]
 
+    const rejectionReasons: Record<string, number> = {}
+
     // Start from candle 100 to have enough history for indicators
     for (let i = 100; i < candles1h.length - 10; i++) {
+      const currentPrice = candles1h[i].close
+
       // Create a slice of data up to this point
       const historicalData: Record<Timeframe, Candle[]> = {
-        "4h": marketData["4h"].slice(0, Math.floor(i / 4) + 100),
+        "4h": marketData["4h"].slice(0, Math.floor(i / 4) + 50),
         "1h": marketData["1h"].slice(0, i + 1),
         "15m": marketData["15m"].slice(0, i * 4 + 1),
         "5m": marketData["5m"].slice(0, i * 12 + 1),
       }
 
-      const currentPrice = candles1h[i].close
-
       // Check if signal would be generated at this point
-      const signal = await this.checkSignalConditions(historicalData, currentPrice, mode)
+      const result = this.checkSignalConditions(historicalData, currentPrice, mode, i)
 
-      if (signal) {
+      if (!result.signal && result.reason) {
+        rejectionReasons[result.reason] = (rejectionReasons[result.reason] || 0) + 1
+      }
+
+      if (result.signal) {
+        console.log(
+          `[v0] ✅ Signal detected at candle ${i}, price ${currentPrice}, direction: ${result.signal.direction}`,
+        )
+
         // Simulate the trade outcome by looking at the next 20 candles
         const futureCandles = candles1h.slice(i + 1, i + 21)
-        const tradeOutcome = this.simulateTrade(signal, futureCandles)
+        const tradeOutcome = this.simulateTrade(result.signal, futureCandles)
 
         signals.push(tradeOutcome)
 
@@ -70,33 +79,53 @@ export class BacktestAnalyzer {
       }
     }
 
+    console.log(`[v0] ===== REJECTION REASONS =====`)
+    Object.entries(rejectionReasons).forEach(([reason, count]) => {
+      console.log(`[v0] ${reason}: ${count} times`)
+    })
+
+    console.log(`[v0] Backtest complete. Found ${signals.length} signals.`)
     return this.calculateResults(signals, mode)
   }
 
-  private async checkSignalConditions(
+  private checkSignalConditions(
     marketData: Record<Timeframe, Candle[]>,
     currentPrice: number,
     mode: "conservative" | "aggressive",
-  ): Promise<{ direction: Direction; entry: number; stop: number; tp1: number; tp2: number } | null> {
-    const trend4h = this.engine.detectTrend(marketData["4h"], "conservative")
-    const trend1h_conservative = this.engine.detectTrend(marketData["1h"], "conservative")
-    const trend1h_aggressive = this.engine.detectTrend(marketData["1h"], "aggressive")
-    const trend15m = this.engine.detectTrend(marketData["15m"], mode)
-    const trend5m = this.engine.detectTrend(marketData["5m"], mode)
+    candleIndex: number,
+  ): {
+    signal: { direction: Direction; entry: number; stop: number; tp1: number; tp2: number } | null
+    reason?: string
+  } {
+    // Detect trends for each timeframe
+    const trend4h = this.detectTrend(marketData["4h"], mode === "conservative" ? "50/200" : "8/21")
+    const trend1h = this.detectTrend(marketData["1h"], mode === "conservative" ? "50/200" : "8/21")
+    const trend15m = this.detectTrend(marketData["15m"], "8/21")
+    const trend5m = this.detectTrend(marketData["5m"], "8/21")
+
+    if (candleIndex % 20 === 0) {
+      console.log(`[v0] Candle ${candleIndex}: 4H=${trend4h}, 1H=${trend1h}, 15M=${trend15m}, 5M=${trend5m}`)
+    }
 
     let aligned = false
     let direction: Direction = "ranging"
 
     if (mode === "conservative") {
-      aligned = trend4h === trend1h_conservative && trend4h !== "ranging"
+      // Conservative: 4H and 1H must align
+      aligned = trend4h === trend1h && trend4h !== "ranging"
       direction = aligned ? trend4h : "ranging"
-    } else {
-      aligned = trend1h_aggressive === trend15m && trend1h_aggressive === trend5m && trend1h_aggressive !== "ranging"
-      direction = aligned ? trend1h_aggressive : "ranging"
-    }
 
-    if (!aligned || direction === "ranging") {
-      return null
+      if (!aligned) {
+        return { signal: null, reason: `4h_1h_not_aligned (4H:${trend4h}, 1H:${trend1h})` }
+      }
+    } else {
+      // Aggressive: 1H, 15M, 5M must align
+      aligned = trend1h === trend15m && trend1h === trend5m && trend1h !== "ranging"
+      direction = aligned ? trend1h : "ranging"
+
+      if (!aligned) {
+        return { signal: null, reason: `1h_15m_5m_not_aligned (1H:${trend1h}, 15M:${trend15m}, 5M:${trend5m})` }
+      }
     }
 
     // Check for breakout
@@ -108,11 +137,18 @@ export class BacktestAnalyzer {
 
     const validBreakout = breakout.isBreakout ? breakout : trendlineBreakout.isBreakout ? trendlineBreakout : null
 
-    if (!validBreakout || validBreakout.direction !== direction) {
-      return null
+    if (!validBreakout) {
+      return { signal: null, reason: "no_breakout_detected" }
     }
 
-    // Calculate stops and targets
+    if (validBreakout.direction !== direction) {
+      return {
+        signal: null,
+        reason: `breakout_direction_mismatch (breakout:${validBreakout.direction}, trend:${direction})`,
+      }
+    }
+
+    // Calculate stops and targets using Chandelier Exit
     const chandelier = calculateChandelierExit(marketData["1h"], 22, 3)
     const chandelierStop =
       direction === "bullish"
@@ -124,12 +160,38 @@ export class BacktestAnalyzer {
     const tp2 = direction === "bullish" ? currentPrice + riskAmount * 3 : currentPrice - riskAmount * 3
 
     return {
-      direction,
-      entry: currentPrice,
-      stop: chandelierStop,
-      tp1,
-      tp2,
+      signal: {
+        direction,
+        entry: currentPrice,
+        stop: chandelierStop,
+        tp1,
+        tp2,
+      },
     }
+  }
+
+  private detectTrend(candles: Candle[], emaType: "50/200" | "8/21"): Direction {
+    if (candles.length < 200) return "ranging"
+
+    const closes = candles.map((c) => c.close)
+
+    let fastEMA: number[]
+    let slowEMA: number[]
+
+    if (emaType === "50/200") {
+      fastEMA = calculateEMA(closes, 50)
+      slowEMA = calculateEMA(closes, 200)
+    } else {
+      fastEMA = calculateEMA(closes, 8)
+      slowEMA = calculateEMA(closes, 21)
+    }
+
+    const currentFast = fastEMA[fastEMA.length - 1]
+    const currentSlow = slowEMA[slowEMA.length - 1]
+
+    if (currentFast > currentSlow * 1.001) return "bullish"
+    if (currentFast < currentSlow * 0.999) return "bearish"
+    return "ranging"
   }
 
   private simulateTrade(
@@ -143,7 +205,7 @@ export class BacktestAnalyzer {
     // Check each future candle for stop or target hit
     for (const candle of futureCandles) {
       if (signal.direction === "bullish") {
-        // Check stop loss
+        // Check stop loss first
         if (candle.low <= signal.stop) {
           exitPrice = signal.stop
           exitReason = "stop_loss"
@@ -158,7 +220,7 @@ export class BacktestAnalyzer {
           break
         }
       } else {
-        // Check stop loss
+        // Check stop loss first
         if (candle.high >= signal.stop) {
           exitPrice = signal.stop
           exitReason = "stop_loss"
@@ -197,6 +259,7 @@ export class BacktestAnalyzer {
 
   private calculateResults(signals: BacktestSignal[], mode: string): BacktestResult {
     if (signals.length === 0) {
+      console.log(`[v0] No signals found for ${mode} mode`)
       return {
         totalSignals: 0,
         wins: 0,
@@ -223,12 +286,14 @@ export class BacktestAnalyzer {
     const bestTrade = Math.max(...signals.map((s) => s.rMultiple))
     const worstTrade = Math.min(...signals.map((s) => s.rMultiple))
 
-    console.log(`[v0] ${mode} mode backtest results:`)
+    console.log(`[v0] ===== ${mode.toUpperCase()} MODE RESULTS =====`)
     console.log(`[v0] Total signals: ${signals.length}`)
     console.log(`[v0] Wins: ${wins} (${((wins / signals.length) * 100).toFixed(1)}%)`)
     console.log(`[v0] Losses: ${losses} (${((losses / signals.length) * 100).toFixed(1)}%)`)
     console.log(`[v0] Avg R-multiple: ${avgRMultiple.toFixed(2)}R`)
     console.log(`[v0] Profit factor: ${profitFactor.toFixed(2)}`)
+    console.log(`[v0] Best trade: ${bestTrade.toFixed(2)}R`)
+    console.log(`[v0] Worst trade: ${worstTrade.toFixed(2)}R`)
 
     return {
       totalSignals: signals.length,
