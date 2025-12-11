@@ -172,8 +172,10 @@ export function ActiveTradeCard({ signal, currentPrice, rejectionReason, signalM
       {/* Breakout Info */}
       <div className="mt-4 p-3 bg-accent/20 rounded-md">
         <p className="text-xs text-muted-foreground">
-          <strong>Breakout Zone:</strong> {signal.breakoutZone.type} @ ${signal.breakoutZone.level.toFixed(2)} (
-          {signal.breakoutZone.touches} touches)
+          <strong>Breakout Zone:</strong>{" "}
+          {signal.breakoutZone
+            ? `${signal.breakoutZone.type} @ $${signal.breakoutZone.level.toFixed(2)} (${signal.breakoutZone.touches} touches)`
+            : "Trendline breakout detected"}
         </p>
         <p className="text-xs text-muted-foreground mt-1">
           <strong>{isPending ? "Preview Generated" : "Entry Time"}:</strong>{" "}

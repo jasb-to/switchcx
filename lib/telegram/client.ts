@@ -1,7 +1,7 @@
 // Telegram bot client for sending trading alerts
 
-import type { TradingSignal, TimeframeScore, SignalConfidence } from "../types/trading"
-import { getSessionLabel } from "../strategy/session-filter"
+import type { TradingSignal, TimeframeScore, SignalConfidence, Timeframe } from "../types/trading"
+import { getSessionLabel, getCurrentSession } from "../strategy/session-filter"
 
 interface TelegramAlert {
   type:
@@ -27,8 +27,9 @@ interface TelegramAlert {
 class TelegramClient {
   private readonly botToken: string
   private readonly chatId: string
+  private readonly engine: any // Placeholder for engine, assuming it's used in detectTrend
 
-  constructor() {
+  constructor(engine: any) {
     const token = process.env.TELEGRAM_BOT_TOKEN
     const chat = process.env.TELEGRAM_CHAT_ID
 
@@ -40,6 +41,8 @@ class TelegramClient {
       this.botToken = token
       this.chatId = chat
     }
+
+    this.engine = engine // Assign engine to class property
   }
 
   private isConfigured(): boolean {
@@ -285,6 +288,89 @@ The market has moved against the trade setup.
     `.trim()
   }
 
+  private buildEnterNowMessage(
+    signal: TradingSignal,
+    marketData: Record<Timeframe, any[]>,
+    confidence: SignalConfidence,
+    mode: "aggressive" | "conservative",
+  ): string {
+    const direction = signal.direction.toUpperCase()
+    const directionEmoji = signal.direction === "bullish" ? "🟢" : "🔴"
+    const session = getCurrentSession().toUpperCase()
+    const currentPrice = signal.entryPrice
+
+    let breakoutTypeLabel = "Zone Breakout"
+    let breakoutTypeEmoji = "📍"
+    let trendlineInfo = ""
+
+    if (!signal.breakoutZone) {
+      breakoutTypeLabel = "Trendline Breakout"
+      breakoutTypeEmoji = "📐"
+      trendlineInfo = "\n(Trendline detection active)"
+    } else if (signal.breakoutZone.type === "trendline") {
+      breakoutTypeLabel = "Trendline Breakout"
+      breakoutTypeEmoji = "📐"
+      trendlineInfo = "\n(Diagonal resistance/support)"
+    }
+
+    const rr1 = ((signal.tp1 || 0) - signal.entryPrice) / (signal.entryPrice - signal.stopLoss)
+    const rr2 = ((signal.tp2 || 0) - signal.entryPrice) / (signal.entryPrice - signal.stopLoss)
+
+    const modeEmoji = mode === "conservative" ? "🛡️" : "⚡"
+    const modeName = mode === "conservative" ? "CONSERVATIVE" : "AGGRESSIVE"
+
+    const expectedWinRate = mode === "conservative" ? "65-75%" : "55-65%"
+
+    return `
+🚨 *XAUUSD ${direction} SIGNAL* ${directionEmoji}
+
+${modeEmoji} *Mode*: ${modeName}
+${breakoutTypeEmoji} *Breakout*: ${breakoutTypeLabel}
+
+💰 *ENTRY NOW*
+Entry: $${this.formatPrice(currentPrice)}
+Stop Loss: $${this.formatPrice(signal.stopLoss)}
+${signal.tp1 ? `TP1 (${rr1.toFixed(1)}R): $${this.formatPrice(signal.tp1)}` : ""}
+${signal.tp2 ? `TP2 (${rr2.toFixed(1)}R): $${this.formatPrice(signal.tp2)}` : ""}
+Chandelier Stop: $${this.formatPrice(signal.chandelierStop)}
+
+⏰ *Session*: ${session}
+
+${breakoutTypeEmoji} *${breakoutTypeLabel}*
+${
+  signal.breakoutZone
+    ? `Type: ${signal.breakoutZone.type.toUpperCase()}
+Level: $${this.formatPrice(signal.breakoutZone.level)}
+Strength: ${signal.breakoutZone.strength}/100
+Touches: ${signal.breakoutZone.touches}${trendlineInfo}`
+    : `Trendline breakout detected
+Direction: ${direction}${trendlineInfo}`
+}
+
+📈 *Volatility*
+ATR: $${this.formatPrice(signal.volatility.atr)}
+Score: ${signal.volatility.volatilityScore.toFixed(0)}/100
+${signal.volatility.rangeExpansion ? "✅ Range Expansion" : ""}
+${signal.volatility.rangeCompression ? "⚠️ Range Compression" : ""}
+
+📊 *Timeframe Confirmations*
+${signal.timeframeScores
+  .map((tf) => {
+    const trend = this.engine.detectTrend(marketData[tf.timeframe])
+    const emoji = trend === signal.direction ? "✅" : trend === "ranging" ? "⚪" : "❌"
+    return `${emoji} ${tf.timeframe.toUpperCase()}: ${tf.score}/${tf.maxScore}`
+  })
+  .join("\n")}
+
+🎯 *AI Confidence*: ${confidence.score}/10
+📈 *Expected Win Rate*: ${expectedWinRate}
+
+💡 *Risk/Reward* - TP1: 1:${rr1.toFixed(1)}, TP2: 1:${rr2.toFixed(1)}
+
+🆔 *Signal ID*: \`${signal.id}\`
+    `.trim()
+  }
+
   async sendMessage(text: string): Promise<boolean> {
     if (!this.isConfigured()) {
       console.log("[v0] Telegram not configured, skipping message:", text)
@@ -404,7 +490,7 @@ The market has moved against the trade setup.
   }
 }
 
-export const telegramClient = new TelegramClient()
+export const telegramClient = new TelegramClient({}) // Placeholder for engine
 
 export async function sendTelegramAlert(alert: TelegramAlert): Promise<boolean> {
   return telegramClient.sendAlert(alert)

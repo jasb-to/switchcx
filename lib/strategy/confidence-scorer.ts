@@ -34,13 +34,18 @@ export function calculateSignalConfidence(
 }
 
 function assessBreakoutQuality(signal: TradingSignal): number {
+  if (!signal.breakoutZone) {
+    // If there's a trendline breakout instead, return a moderate score
+    return 65
+  }
+
   const zone = signal.breakoutZone
 
   // Higher score for stronger zones (more touches)
-  const touchScore = Math.min(100, zone.touches * 25)
+  const touchScore = Math.min(100, (zone.touches || 2) * 25)
 
   // Higher score for higher zone strength
-  const strengthScore = zone.strength
+  const strengthScore = zone.strength || 50
 
   // Average the scores
   return (touchScore + strengthScore) / 2

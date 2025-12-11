@@ -10,9 +10,16 @@ export async function GET() {
   try {
     console.log("[v0] Starting backtest analysis...")
 
+    console.log("[v0] Current time:", new Date().toISOString())
+
     // Fetch historical data
     const timeframes: Timeframe[] = ["4h", "1h", "15m", "5m"]
     const marketData = await twelveDataClient.fetchMultipleTimeframes(timeframes)
+
+    console.log(
+      "[v0] Data fetched. Latest 1H candle:",
+      new Date(marketData["1h"][marketData["1h"].length - 1].timestamp).toISOString(),
+    )
 
     // Run both backtests
     const conservativeResults = await backtestAnalyzer.runBacktest(marketData, "conservative")

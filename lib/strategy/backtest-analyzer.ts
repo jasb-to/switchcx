@@ -39,13 +39,24 @@ export class BacktestAnalyzer {
     console.log(`[v0] 15M candles: ${marketData["15m"].length}`)
     console.log(`[v0] 5M candles: ${marketData["5m"].length}`)
 
+    const first1h = marketData["1h"][0]
+    const last1h = marketData["1h"][marketData["1h"].length - 1]
+    console.log(
+      `[v0] 1H data range: ${new Date(first1h.timestamp).toISOString()} to ${new Date(last1h.timestamp).toISOString()}`,
+    )
+    console.log(`[v0] Current price (last 1H): ${last1h.close}`)
+
     const signals: BacktestSignal[] = []
     const candles1h = marketData["1h"]
 
     const rejectionReasons: Record<string, number> = {}
 
+    let candlesChecked = 0
+    const trendsDetected = { bullish: 0, bearish: 0, ranging: 0 }
+
     // Start from candle 100 to have enough history for indicators
-    for (let i = 100; i < candles1h.length - 10; i++) {
+    for (let i = 100; i < candles1h.length - 10; i += 10) {
+      candlesChecked++
       const currentPrice = candles1h[i].close
 
       // Create a slice of data up to this point
@@ -59,13 +70,16 @@ export class BacktestAnalyzer {
       // Check if signal would be generated at this point
       const result = this.checkSignalConditions(historicalData, currentPrice, mode, i)
 
+      const trend1h = this.detectTrend(historicalData["1h"], mode === "conservative" ? "50/200" : "8/21")
+      trendsDetected[trend1h]++
+
       if (!result.signal && result.reason) {
         rejectionReasons[result.reason] = (rejectionReasons[result.reason] || 0) + 1
       }
 
       if (result.signal) {
         console.log(
-          `[v0] ✅ Signal detected at candle ${i}, price ${currentPrice}, direction: ${result.signal.direction}`,
+          `[v0] ✅ Signal detected at candle ${i}, timestamp: ${new Date(candles1h[i].timestamp).toISOString()}, price ${currentPrice}, direction: ${result.signal.direction}`,
         )
 
         // Simulate the trade outcome by looking at the next 20 candles
@@ -75,14 +89,21 @@ export class BacktestAnalyzer {
         signals.push(tradeOutcome)
 
         // Skip ahead to avoid overlapping signals
-        i += 10
+        i += 20
       }
     }
 
+    console.log(`[v0] ===== BACKTEST STATISTICS =====`)
+    console.log(`[v0] Total candles checked: ${candlesChecked}`)
+    console.log(
+      `[v0] Trend distribution - Bullish: ${trendsDetected.bullish}, Bearish: ${trendsDetected.bearish}, Ranging: ${trendsDetected.ranging}`,
+    )
     console.log(`[v0] ===== REJECTION REASONS =====`)
-    Object.entries(rejectionReasons).forEach(([reason, count]) => {
-      console.log(`[v0] ${reason}: ${count} times`)
-    })
+    Object.entries(rejectionReasons)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([reason, count]) => {
+        console.log(`[v0] ${reason}: ${count} times (${((count / candlesChecked) * 100).toFixed(1)}%)`)
+      })
 
     console.log(`[v0] Backtest complete. Found ${signals.length} signals.`)
     return this.calculateResults(signals, mode)
