@@ -262,7 +262,6 @@ export function calculateMACD(
   const signal: number[] = []
   const histogram: number[] = []
 
-  // Calculate fast and slow EMAs
   const fastEMA = calculateEMA(prices, fastPeriod)
   const slowEMA = calculateEMA(prices, slowPeriod)
 
@@ -276,8 +275,8 @@ export function calculateMACD(
   }
 
   // Calculate signal line (EMA of MACD)
-  const validMacd = macd.filter((v) => !isNaN(v))
-  if (validMacd.length < signalPeriod) {
+  const validMacdCount = macd.filter((v) => !isNaN(v)).length
+  if (validMacdCount < signalPeriod) {
     return {
       macd,
       signal: macd.map(() => Number.NaN),
@@ -285,30 +284,25 @@ export function calculateMACD(
     }
   }
 
-  // Start with SMA for first signal value
-  let sum = 0
-  let validCount = 0
-  for (let i = 0; i < macd.length && validCount < signalPeriod; i++) {
-    if (!isNaN(macd[i])) {
-      sum += macd[i]
-      validCount++
-      if (validCount === signalPeriod) {
-        signal[i] = sum / signalPeriod
-      } else {
-        signal[i] = Number.NaN
-      }
-    } else {
-      signal[i] = Number.NaN
+  for (let i = 0; i < macd.length; i++) {
+    if (i < signalPeriod - 1 || isNaN(macd[i])) {
+      signal.push(Number.NaN)
+      continue
     }
-  }
 
-  // Calculate signal EMA for remaining values
-  const multiplier = 2 / (signalPeriod + 1)
-  for (let i = signalPeriod; i < macd.length; i++) {
-    if (isNaN(macd[i])) {
-      signal[i] = Number.NaN
+    // Find first 'signalPeriod' valid MACD values before current point
+    const validMacds: number[] = []
+    for (let j = i; j >= 0 && validMacds.length < signalPeriod; j--) {
+      if (!isNaN(macd[j])) {
+        validMacds.push(macd[j])
+      }
+    }
+
+    if (validMacds.length === signalPeriod) {
+      const sum = validMacds.reduce((a, b) => a + b, 0)
+      signal.push(sum / signalPeriod)
     } else {
-      signal[i] = (macd[i] - signal[i - 1]) * multiplier + signal[i - 1]
+      signal.push(Number.NaN)
     }
   }
 
@@ -387,6 +381,11 @@ export function calculateStochRSI(
 
 function calculateRSI(prices: number[], period = 14): number[] {
   const rsi: number[] = []
+
+  if (prices.length < period + 1) {
+    return prices.map(() => Number.NaN)
+  }
+
   const gains: number[] = []
   const losses: number[] = []
 
@@ -407,19 +406,12 @@ function calculateRSI(prices: number[], period = 14): number[] {
     let avgGain = 0
     let avgLoss = 0
 
-    if (i === period - 1) {
-      // First average
-      for (let j = 0; j < period; j++) {
-        avgGain += gains[j]
-        avgLoss += losses[j]
-      }
-      avgGain /= period
-      avgLoss /= period
-    } else {
-      // Smoothed average
-      avgGain = (rsi[i - 1] * (period - 1) + gains[i]) / period
-      avgLoss = ((100 - rsi[i - 1]) * (period - 1) + losses[i]) / period
+    for (let j = 0; j < period; j++) {
+      avgGain += gains[i - j]
+      avgLoss += losses[i - j]
     }
+    avgGain /= period
+    avgLoss /= period
 
     if (avgLoss === 0) {
       rsi.push(100)
