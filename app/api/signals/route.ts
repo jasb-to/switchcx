@@ -29,6 +29,11 @@ function calculateConfirmationTier(
   // Check for conservative mode (4H + 1H alignment)
   const conservativeMode = trend4h === trend1h && trend4h !== "ranging" && trend1h !== "ranging"
 
+  // If 5M is strongly opposing in conservative mode, reduce tier
+  const conservative5mOpposing =
+    conservativeMode &&
+    ((trend4h === "bullish" && trend5m === "bearish") || (trend4h === "bearish" && trend5m === "bullish"))
+
   // Check for aggressive mode (1H + 15M + 5M alignment)
   const aggressiveMode =
     trend1h !== "ranging" &&
@@ -56,8 +61,11 @@ function calculateConfirmationTier(
       if (aggressiveMode && strongTimeframes >= 3) {
         return { tier: 3, mode: "aggressive" }
       }
-      if (conservativeMode && strongTimeframes >= 3) {
+      if (conservativeMode && strongTimeframes >= 3 && !conservative5mOpposing) {
         return { tier: 3, mode: "conservative" }
+      }
+      if (conservativeMode && conservative5mOpposing) {
+        return { tier: 2, mode: "conservative" }
       }
       return { tier: 2, mode: aggressiveMode ? "aggressive" : conservativeMode ? "conservative" : "none" }
     }
@@ -74,7 +82,13 @@ function calculateConfirmationTier(
     if (score5m.score >= 1) tier++
 
     if (tier === 4) {
+      if (conservativeMode && conservative5mOpposing) {
+        return { tier: 2, mode: "conservative" }
+      }
       return { tier: 4, mode: conservativeMode ? "conservative" : "aggressive" }
+    }
+    if (conservativeMode && conservative5mOpposing) {
+      return { tier: 2, mode: "conservative" }
     }
     return { tier: Math.max(2, tier), mode: conservativeMode ? "conservative" : "aggressive" }
   }
