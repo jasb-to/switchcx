@@ -150,15 +150,15 @@ class TwelveDataClient {
   }
 
   async fetchCandles(timeframe: Timeframe, outputSize = 200): Promise<Candle[]> {
+    if (this.exhaustedKeys.size >= this.getApiKeys().length) {
+      throw new Error(
+        `Daily API limit reached. All ${this.getApiKeys().length} API keys exhausted (800 credits/day each). Service resumes at midnight UTC.`,
+      )
+    }
+
     return this.enqueueRequest(async () => {
       const interval = this.mapTimeframeToInterval(timeframe)
       const keyIndexBeforeRequest = this.currentKeyIndex
-
-      if (this.exhaustedKeys.size >= this.getApiKeys().length) {
-        throw new Error(
-          `Daily API limit reached. All ${this.getApiKeys().length} API keys exhausted (800 credits/day each). Service resumes at midnight UTC.`,
-        )
-      }
 
       const apiKey = this.getNextApiKey()
 
@@ -192,14 +192,9 @@ class TwelveDataClient {
             console.warn(`[v0] API key ${keyIndexBeforeRequest + 1} exhausted. Marking as unavailable.`)
             this.exhaustedKeys.add(keyIndexBeforeRequest)
 
-            if (this.exhaustedKeys.size >= this.getApiKeys().length) {
-              throw new Error(
-                `Daily API limit reached. All ${this.getApiKeys().length} API keys exhausted (800 credits/day each). Service resumes at midnight UTC.`,
-              )
-            }
-
-            console.log(`[v0] Switching to next available API key...`)
-            return this.fetchCandles(timeframe, outputSize)
+            throw new Error(
+              `Daily API limit reached. ${this.exhaustedKeys.size}/${this.getApiKeys().length} keys exhausted. Service resumes at midnight UTC.`,
+            )
           }
 
           throw new Error(`Twelve Data API error: ${JSON.stringify(data)}`)
@@ -231,12 +226,12 @@ class TwelveDataClient {
         await new Promise((resolve) => setTimeout(resolve, 2000))
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
-        if (errorMessage.includes("Daily API limit") || errorMessage.includes("API keys exhausted")) {
+        if (errorMessage.includes("Daily API limit") || errorMessage.includes("keys exhausted")) {
           console.error(`[v0] ❌ All API keys exhausted. Stopping data fetch.`)
           throw error
         }
         console.error(`Failed to fetch ${timeframe} data:`, error)
-        results[timeframe] = []
+        throw error
       }
     }
 
@@ -244,6 +239,10 @@ class TwelveDataClient {
   }
 
   async getLatestPrice(): Promise<number> {
+    if (this.exhaustedKeys.size >= this.getApiKeys().length) {
+      throw new Error(`Daily API limit reached. Service resumes at midnight UTC.`)
+    }
+
     return this.enqueueRequest(async () => {
       const keyIndexBeforeRequest = this.currentKeyIndex
       const apiKey = this.getNextApiKey()
@@ -267,11 +266,7 @@ class TwelveDataClient {
           console.warn(`[v0] API key ${keyIndexBeforeRequest + 1} exhausted. Marking as unavailable.`)
           this.exhaustedKeys.add(keyIndexBeforeRequest)
 
-          if (this.exhaustedKeys.size >= this.getApiKeys().length) {
-            throw new Error(`⚠️ Daily API limit reached. Service resumes at midnight UTC.`)
-          }
-
-          return this.getLatestPrice()
+          throw new Error(`Daily API limit reached. Service resumes at midnight UTC.`)
         }
 
         return Number.parseFloat(data.price)
