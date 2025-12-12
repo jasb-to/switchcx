@@ -24,8 +24,8 @@ interface MarketData {
   currentSession: TradingSession
   trend4h: Direction
   trend1h: Direction
-  trend15m: Direction // Added 15M trend
-  trend5m: Direction // Added 5M trend
+  trend15m: Direction
+  trend5m: Direction
   isChopRange: boolean
   volatility: {
     atr: number
@@ -35,7 +35,7 @@ interface MarketData {
   }
   timeframeScores: TimeframeScore[]
   confirmationTier: number
-  signalMode: "conservative" | "aggressive" | "none" // Added signal mode
+  signalMode: "conservative" | "aggressive" | "none"
   lastUpdate: number
   activeSignal?: TradingSignal
   rejectionReason?: string
@@ -60,15 +60,11 @@ export default function HomePage() {
       const response = await fetch("/api/signals")
       const result = await response.json()
 
-      console.log("[v0] Client received response:", result)
-      console.log("[v0] Active signal in response:", result.data?.activeSignal)
-
       if (result.success) {
         setMarketData(result.data)
-        console.log("[v0] Market data set in state, activeSignal:", result.data?.activeSignal)
       }
     } catch (error) {
-      console.error("[v0] Error fetching market data:", error)
+      console.error("Error fetching market data:", error)
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -87,7 +83,7 @@ export default function HomePage() {
         alert(`Telegram test failed: ${result.error}`)
       }
     } catch (error) {
-      console.error("[v0] Error testing Telegram:", error)
+      console.error("Error testing Telegram:", error)
       alert("Failed to send Telegram test message")
     } finally {
       setTestingTelegram(false)
@@ -167,13 +163,13 @@ export default function HomePage() {
           currentPrice={marketData.currentPrice}
           trend4h={marketData.trend4h}
           trend1h={marketData.trend1h}
-          trend15m={marketData.trend15m} // Pass 15M trend
-          trend5m={marketData.trend5m} // Pass 5M trend
+          trend15m={marketData.trend15m}
+          trend5m={marketData.trend5m}
           session={marketData.currentSession}
           isChopRange={marketData.isChopRange}
           volatilityScore={marketData.volatility.volatilityScore}
           confirmationTier={marketData.confirmationTier}
-          signalMode={marketData.signalMode} // Pass signal mode
+          signalMode={marketData.signalMode}
           isMarketOpen={marketData.isMarketOpen}
           marketStatusMessage={marketData.marketStatusMessage}
           newsFilterActive={marketData.newsFilterActive}
@@ -202,7 +198,7 @@ export default function HomePage() {
             signal={marketData.activeSignal || null}
             currentPrice={marketData.currentPrice}
             rejectionReason={marketData.rejectionReason}
-            signalMode={marketData.signalMode} // Pass signal mode to card
+            signalMode={marketData.signalMode}
           />
           <EntryInstructionsCard />
         </div>
@@ -217,7 +213,7 @@ export default function HomePage() {
             Alert Tiers: 0-1/4 (None) • 2/4 (Get Ready) • 3/4 (Limit Order) • 4/4 (Enter Now)
           </p>
           <p className="mt-2 text-xs text-muted-foreground">
-            🚀 Features: Performance Tracking • AI Confidence Scoring • Market Context Intelligence • Advanced Trade
+            Features: Performance Tracking • AI Confidence Scoring • Market Context Intelligence • Advanced Trade
             Management • Dual-Mode Strategy
           </p>
         </div>

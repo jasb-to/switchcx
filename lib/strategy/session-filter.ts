@@ -31,9 +31,8 @@ export function getCurrentSession(): TradingSession {
 export function shouldTradeInSession(
   session: TradingSession,
   volatilityScore: number,
-  minVolatilityForAsian = 25, // Reduced default from 40 to 25
+  minVolatilityForAsian = 20, // Reduced from 25 to 20 to allow tier 3 signals during low volatility
 ): boolean {
-  // Always trade London, NY, and overlap
   if (session === "london" || session === "new_york" || session === "overlap") {
     return true
   }

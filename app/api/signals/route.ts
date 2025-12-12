@@ -26,15 +26,12 @@ function calculateConfirmationTier(
 
   if (!score4h || !score1h || !score15m || !score5m) return { tier: 0, mode: "none" }
 
-  // Check for conservative mode (4H + 1H alignment)
   const conservativeMode = trend4h === trend1h && trend4h !== "ranging" && trend1h !== "ranging"
 
-  // If 5M is strongly opposing in conservative mode, reduce tier
   const conservative5mOpposing =
     conservativeMode &&
     ((trend4h === "bullish" && trend5m === "bearish") || (trend4h === "bearish" && trend5m === "bullish"))
 
-  // Check for aggressive mode (1H + 15M + 5M alignment)
   const aggressiveMode =
     trend1h !== "ranging" &&
     trend15m !== "ranging" &&
@@ -42,22 +39,17 @@ function calculateConfirmationTier(
     trend1h === trend15m &&
     trend1h === trend5m
 
-  // Tier 1: Individual timeframe strength (no alignment required)
-  // At least 2 timeframes showing decent scores
   const strongTimeframes = [score4h.score >= 3, score1h.score >= 2, score15m.score >= 2, score5m.score >= 2].filter(
     Boolean,
   ).length
 
   if (strongTimeframes >= 2) {
-    // Tier 2: Partial alignment starting to form
-    // Either 2 adjacent timeframes aligning OR 3+ timeframes with decent scores
     const partialAlignment =
       (trend1h === trend15m && trend1h !== "ranging") ||
       (trend15m === trend5m && trend15m !== "ranging") ||
       (trend4h === trend1h && trend4h !== "ranging")
 
     if (partialAlignment && strongTimeframes >= 2) {
-      // Tier 3: Better alignment but waiting for full confirmation
       if (aggressiveMode && strongTimeframes >= 3) {
         return { tier: 3, mode: "aggressive" }
       }
@@ -73,7 +65,6 @@ function calculateConfirmationTier(
     return { tier: 1, mode: "none" }
   }
 
-  // Tier 4: Full alignment with all confirmations
   if (conservativeMode || aggressiveMode) {
     let tier = 0
     if (score4h.score >= 3) tier++
@@ -98,17 +89,11 @@ function calculateConfirmationTier(
 
 export async function GET() {
   try {
-    console.log("[v0] Dashboard fetching market data...")
-
     const marketStatus = getGoldMarketStatus()
     const marketStatusMessage = formatMarketHours(marketStatus)
 
     const marketContext = await getMarketContext()
     const tradingRestriction = shouldAvoidTrading(marketContext)
-
-    if (tradingRestriction.avoid) {
-      console.log("[v0] Trading blocked due to news:", tradingRestriction.reason)
-    }
 
     let marketData: Record<Timeframe, any[]> = {
       "4h": [],
@@ -124,10 +109,9 @@ export async function GET() {
       marketData = await twelveDataClient.fetchMultipleTimeframes(timeframes)
       currentPrice = await twelveDataClient.getLatestPrice()
     } catch (apiCallError) {
-      console.error("[v0] API call failed:", apiCallError)
+      console.error("API call failed:", apiCallError)
       apiError = apiCallError instanceof Error ? apiCallError.message : "API unavailable"
 
-      // Return a safe response when API fails
       return NextResponse.json({
         success: true,
         data: {
@@ -135,8 +119,8 @@ export async function GET() {
           currentSession: getCurrentSession(),
           trend4h: "ranging" as Direction,
           trend1h: "ranging" as Direction,
-          trend15m: "ranging" as Direction, // Add 15M trend to response
-          trend5m: "ranging" as Direction, // Add 5M trend to response
+          trend15m: "ranging" as Direction,
+          trend5m: "ranging" as Direction,
           isChopRange: true,
           volatility: {
             atr: 0,
@@ -175,7 +159,7 @@ export async function GET() {
             },
           ],
           confirmationTier: 0,
-          signalMode: "none", // Add signal mode to response
+          signalMode: "none",
           activeSignal: null,
           rejectionReason: null,
           signalConfidence: null,
@@ -219,9 +203,6 @@ export async function GET() {
     const confirmationTier = confirmationResult.tier
     const signalMode = confirmationResult.mode
 
-    console.log("[v0] Confirmation tier:", confirmationTier, "Mode:", signalMode)
-    console.log("[v0] Trends - 4h:", trend4h, "1h:", trend1h, "15m:", trend15m, "5m:", trend5m)
-
     let activeSignal = null
     let rejectionReason = null
     let signalConfidence = null
@@ -229,36 +210,23 @@ export async function GET() {
     if (tradingRestriction.avoid) {
       rejectionReason = `Trading suspended: ${tradingRestriction.reason}`
     } else if (confirmationTier >= 3 && signalMode !== "none") {
-      console.log("[v0] Attempting to generate signal for dashboard display... Mode:", signalMode)
-      activeSignal = await tradingEngine.generateSignal(marketData, currentPrice, true)
+      activeSignal = await tradingEngine.generateSignal(marketData, currentPrice, signalMode === "aggressive")
 
       if (activeSignal) {
         signalConfidence = calculateSignalConfidence(activeSignal, marketContext, enhancedTimeframeScores)
         if (signalMode === "aggressive") {
           signalConfidence = {
             ...signalConfidence,
-            score: Math.max(5, signalConfidence.score - 2), // Reduce by 2 points for early entry
+            score: Math.max(5, signalConfidence.score - 2),
             recommendation: signalConfidence.score >= 7 ? "take" : "consider",
           }
         }
-        console.log(
-          "[v0] Signal confidence:",
-          signalConfidence.score,
-          "- Recommendation:",
-          signalConfidence.recommendation,
-          "- Mode:",
-          signalMode,
-        )
       }
-
-      console.log("[v0] Signal for display:", activeSignal ? "EXISTS" : "NULL")
     } else {
       if (signalMode === "none") {
         rejectionReason = `Timeframe misalignment: Need either (4H+1H) or (1H+15M+5M) aligned. Current: 4H=${trend4h}, 1H=${trend1h}, 15M=${trend15m}, 5M=${trend5m}`
-        console.log("[v0] No signal - timeframes not aligned in any mode")
       } else {
         rejectionReason = `Insufficient confirmations: Only ${confirmationTier}/4 criteria met`
-        console.log("[v0] No signal - tier < 3")
       }
     }
 
@@ -271,13 +239,13 @@ export async function GET() {
         currentSession,
         trend4h,
         trend1h,
-        trend15m, // Add 15M trend to response
-        trend5m, // Add 5M trend to response
+        trend15m,
+        trend5m,
         isChopRange,
         volatility,
         timeframeScores: enhancedTimeframeScores,
         confirmationTier,
-        signalMode, // Add signal mode to response
+        signalMode,
         activeSignal,
         rejectionReason,
         signalConfidence,
@@ -291,7 +259,7 @@ export async function GET() {
       },
     })
   } catch (error) {
-    console.error("[v0] Error fetching signals:", error)
+    console.error("Error fetching signals:", error)
     return NextResponse.json({
       success: true,
       data: {
@@ -299,8 +267,8 @@ export async function GET() {
         currentSession: getCurrentSession(),
         trend4h: "ranging" as Direction,
         trend1h: "ranging" as Direction,
-        trend15m: "ranging" as Direction, // Add 15M trend to response
-        trend5m: "ranging" as Direction, // Add 5M trend to response
+        trend15m: "ranging" as Direction,
+        trend5m: "ranging" as Direction,
         isChopRange: true,
         volatility: {
           atr: 0,
@@ -339,7 +307,7 @@ export async function GET() {
           },
         ],
         confirmationTier: 0,
-        signalMode: "none", // Add signal mode to response
+        signalMode: "none",
         activeSignal: null,
         rejectionReason: `System error: ${error instanceof Error ? error.message : "Unknown error"}`,
         signalConfidence: null,

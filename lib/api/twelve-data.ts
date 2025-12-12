@@ -189,9 +189,9 @@ class TwelveDataClient {
         results[timeframe] = await this.fetchCandles(timeframe, 200)
         console.log("[v0] Successfully fetched", results[timeframe].length, "candles for", timeframe)
 
-        await new Promise((resolve) => setTimeout(resolve, 1500)) // Reduced delay from 2s to 1.5s for slightly faster fetches
+        await new Promise((resolve) => setTimeout(resolve, 1200)) // Optimized delay between API calls
       } catch (error) {
-        console.error(`[v0] Failed to fetch ${timeframe} data:`, error)
+        console.error(`Failed to fetch ${timeframe} data:`, error)
         results[timeframe] = []
       }
     }

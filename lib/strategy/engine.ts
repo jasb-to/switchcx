@@ -109,7 +109,6 @@ export class TradingEngine {
     const bearishCandles = recentCandles.filter((c) => c.close < c.open).length
 
     const priceAboveEMAFast = currentPrice > latestEMAFast
-    const priceAboveEMASlow = currentPrice > latestEMASlow
 
     const emaSpread = Math.abs(latestEMAFast - latestEMASlow) / latestEMASlow
     const emasStronglyAligned = emaSpread > 0.0015
@@ -120,17 +119,11 @@ export class TradingEngine {
 
     if (latestEMAFast < latestEMASlow) {
       if (priceAboveEMAFast && bullishCandles >= 6) {
-        console.log(
-          `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bullish shift (${bullishCandles}/10 bullish candles)`,
-        )
         return "bullish"
       }
       return "bearish"
     } else if (latestEMAFast > latestEMASlow) {
       if (!priceAboveEMAFast && bearishCandles >= 6) {
-        console.log(
-          `[v0] Momentum override (${mode} ${fastPeriod}/${slowPeriod}): detecting early bearish shift (${bearishCandles}/10 bearish candles)`,
-        )
         return "bearish"
       }
       return "bullish"
@@ -273,7 +266,7 @@ export class TradingEngine {
     // Get volatility metrics
     const volatility = this.calculateVolatilityMetrics(marketData["1h"])
 
-    if (!shouldTradeInSession(session, volatility.volatilityScore, 25)) {
+    if (!shouldTradeInSession(session, volatility.volatilityScore, 20)) {
       console.log(
         "[v0] Session filter failed - outside trading hours or low volatility (score:",
         volatility.volatilityScore,
@@ -317,18 +310,41 @@ export class TradingEngine {
 
     // Calculate Chandelier Exit
     const chandelier = calculateChandelierExit(marketData["1h"], 22, 3)
+
+    // For LONG trades: use chandelier.stopLong (below price)
+    // For SHORT trades: use chandelier.stopShort (above price)
     const chandelierStop =
       validBreakout.direction === "bullish"
         ? chandelier.stopLong[chandelier.stopLong.length - 1]
         : chandelier.stopShort[chandelier.stopShort.length - 1]
+
+    // Validate stop loss is in correct direction relative to entry
+    if (validBreakout.direction === "bullish" && chandelierStop >= currentPrice) {
+      console.log(
+        "[v0] Invalid LONG stop loss - stop must be below entry. Entry:",
+        currentPrice,
+        "Stop:",
+        chandelierStop,
+      )
+      return null
+    }
+
+    if (validBreakout.direction === "bearish" && chandelierStop <= currentPrice) {
+      console.log(
+        "[v0] Invalid SHORT stop loss - stop must be above entry. Entry:",
+        currentPrice,
+        "Stop:",
+        chandelierStop,
+      )
+      return null
+    }
 
     // Calculate TP1 (2R) and TP2 (3R)
     const riskAmount = Math.abs(currentPrice - chandelierStop)
     const tp1 = validBreakout.direction === "bullish" ? currentPrice + riskAmount * 2 : currentPrice - riskAmount * 2
     const tp2 = validBreakout.direction === "bullish" ? currentPrice + riskAmount * 3 : currentPrice - riskAmount * 3
 
-    // For SHORT trades, stop loss should be ABOVE entry (chandelier short stop is already above)
-    // For LONG trades, stop loss should be BELOW entry (chandelier long stop is already below)
+    // Stop loss is directly from chandelier (already in correct direction)
     const stopLoss = chandelierStop
 
     // Generate signal
