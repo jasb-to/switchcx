@@ -16,6 +16,8 @@ export const dynamic = "force-dynamic"
 
 // Store last alert tier to avoid duplicate alerts
 let lastAlertTier = 0
+let lastEmergencyExitTimestamp = 0
+const EMERGENCY_EXIT_COOLDOWN_MS = 15 * 60 * 1000 // 15 minutes cooldown after emergency exit
 
 export async function GET(request: NextRequest) {
   console.log("[v0] ========================================")
@@ -155,6 +157,16 @@ export async function GET(request: NextRequest) {
     console.log("[v0] Stored direction:", storedDirection)
     console.log("[v0] Current trends - 4H:", trend4h, "1H:", trend1h, "15M:", trend15m, "5M:", trend5m)
 
+    const timeSinceEmergencyExit = Date.now() - lastEmergencyExitTimestamp
+    const inEmergencyCooldown = timeSinceEmergencyExit > 0 && timeSinceEmergencyExit < EMERGENCY_EXIT_COOLDOWN_MS
+
+    if (inEmergencyCooldown) {
+      const remainingMinutes = Math.ceil((EMERGENCY_EXIT_COOLDOWN_MS - timeSinceEmergencyExit) / (60 * 1000))
+      console.log("[v0] ⏸️  In emergency exit cooldown -", remainingMinutes, "minutes remaining")
+    }
+
+    let reversalReason = ""
+
     if (storedSignal) {
       const riskAmount = Math.abs(storedSignal.entryPrice - storedSignal.stopLoss)
       const currentRisk =
@@ -169,49 +181,51 @@ export async function GET(request: NextRequest) {
         (storedSignal.direction === "bullish" && currentPrice <= storedSignal.stopLoss) ||
         (storedSignal.direction === "bearish" && currentPrice >= storedSignal.stopLoss)
 
+      const trend4hReversed =
+        (storedSignal.direction === "bullish" && trend4h === "bearish") ||
+        (storedSignal.direction === "bearish" && trend4h === "bullish")
+
       const trend1hReversed =
         (storedSignal.direction === "bullish" && trend1h === "bearish") ||
         (storedSignal.direction === "bearish" && trend1h === "bullish")
 
-      const trend15mReversed =
-        (storedSignal.direction === "bullish" && trend15m === "bearish") ||
-        (storedSignal.direction === "bearish" && trend15m === "bullish")
+      const bothPrimaryTimeframesReversed = trend4hReversed && trend1hReversed
 
-      const trend5mReversed =
-        (storedSignal.direction === "bullish" && trend5m === "bearish") ||
-        (storedSignal.direction === "bearish" && trend5m === "bullish")
-
-      // Alert if ANY timeframe reverses OR price is in danger zone
-      const shouldAlertReversal =
-        priceHitStop ||
-        priceNearStop ||
-        trend1hReversed ||
-        (trend15mReversed && riskPercentage >= 50) ||
-        (trend5mReversed && riskPercentage >= 60)
+      // Alert only if BOTH 4H AND 1H reverse OR stop loss conditions met
+      const shouldAlertReversal = priceHitStop || priceNearStop || bothPrimaryTimeframesReversed
 
       console.log("[v0] 🔍 REVERSAL CONDITIONS:")
       console.log("[v0] Price hit stop:", priceHitStop)
       console.log("[v0] Price near stop (70%+):", priceNearStop, "Risk %:", riskPercentage.toFixed(1))
-      console.log("[v0] 1H reversed:", trend1hReversed)
-      console.log("[v0] 15M reversed:", trend15mReversed)
-      console.log("[v0] 5M reversed:", trend5mReversed)
+      console.log(
+        "[v0] 4H reversed:",
+        trend4hReversed,
+        "(Current:",
+        trend4h,
+        "vs Signal:",
+        storedSignal.direction + ")",
+      )
+      console.log(
+        "[v0] 1H reversed:",
+        trend1hReversed,
+        "(Current:",
+        trend1h,
+        "vs Signal:",
+        storedSignal.direction + ")",
+      )
+      console.log("[v0] BOTH 4H + 1H reversed:", bothPrimaryTimeframesReversed)
       console.log("[v0] Should alert:", shouldAlertReversal)
 
       if (shouldAlertReversal) {
         console.log("[v0] ⚠️ REVERSAL DETECTED IN CRON!")
 
         if (marketStatus.isOpen) {
-          let reversalReason = ""
           if (priceHitStop) {
             reversalReason = `🛑 STOP LOSS HIT! Current: $${currentPrice.toFixed(2)}, Stop: $${storedSignal.stopLoss.toFixed(2)}`
           } else if (priceNearStop) {
             reversalReason = `⚠️ DANGER ZONE! Price is ${riskPercentage.toFixed(0)}% towards stop loss ($${storedSignal.stopLoss.toFixed(2)})`
-          } else if (trend1hReversed) {
-            reversalReason = `📉 1H TREND REVERSED! Now ${trend1h.toUpperCase()} (was ${storedSignal.direction})`
-          } else if (trend15mReversed) {
-            reversalReason = `⚡ 15M TREND REVERSED! Now ${trend15m.toUpperCase()} - Price ${riskPercentage.toFixed(0)}% towards stop`
-          } else if (trend5mReversed) {
-            reversalReason = `🚨 5M TREND REVERSED! Now ${trend5m.toUpperCase()} - Price ${riskPercentage.toFixed(0)}% towards stop`
+          } else if (bothPrimaryTimeframesReversed) {
+            reversalReason = `🔴 MAJOR TREND REVERSAL! Both 4H and 1H now ${trend4h.toUpperCase()} (was ${storedSignal.direction})`
           }
 
           await sendTelegramAlert({
@@ -222,6 +236,9 @@ export async function GET(request: NextRequest) {
           })
 
           console.log("[v0] ✅ EMERGENCY EXIT alert sent from cron")
+
+          lastEmergencyExitTimestamp = Date.now()
+          console.log("[v0] 🚫 Emergency exit cooldown started - No new signals for 15 minutes")
 
           // Close trade in history
           const openTrades = tradeHistoryManager.getAllTrades().filter((t) => t.status === "open")
@@ -248,7 +265,31 @@ export async function GET(request: NextRequest) {
           signalStore.invalidateSignal()
           lastAlertTier = 0
         }
+
+        return NextResponse.json({
+          success: true,
+          emergencyExit: true,
+          reason: reversalReason,
+          cooldownMinutes: 15,
+          timestamp: new Date().toISOString(),
+        })
       }
+    }
+
+    if (inEmergencyCooldown && shouldSendAlert) {
+      const remainingMinutes = Math.ceil((EMERGENCY_EXIT_COOLDOWN_MS - timeSinceEmergencyExit) / (60 * 1000))
+      console.log(
+        "[v0] 🚫 Skipping new signal generation - Emergency cooldown active for",
+        remainingMinutes,
+        "more minutes",
+      )
+
+      return NextResponse.json({
+        success: true,
+        blocked: true,
+        reason: `Emergency exit cooldown active (${remainingMinutes} minutes remaining)`,
+        timestamp: new Date().toISOString(),
+      })
     }
 
     if (shouldSendAlert) {

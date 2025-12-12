@@ -26,7 +26,12 @@ export async function GET() {
     const existingSignal = signalStore.getActiveSignal()
     if (existingSignal) {
       const performanceMetrics = tradeHistoryManager.calculatePerformanceMetrics()
-      const currentPrice = await twelveDataClient.getLatestPrice()
+      let currentPrice = existingSignal.entry
+      try {
+        currentPrice = await twelveDataClient.getLatestPrice()
+      } catch (priceError) {
+        console.warn("[v0] Could not fetch current price, using signal entry price:", priceError)
+      }
 
       return NextResponse.json({
         success: true,
@@ -72,7 +77,11 @@ export async function GET() {
       currentPrice = await twelveDataClient.getLatestPrice()
     } catch (apiCallError) {
       console.error("API call failed:", apiCallError)
-      apiError = apiCallError instanceof Error ? apiCallError.message : "API unavailable"
+      const errorMessage = apiCallError instanceof Error ? apiCallError.message : "API unavailable"
+      const isRateLimitError = errorMessage.includes("Daily API limit") || errorMessage.includes("API credits")
+      apiError = isRateLimitError
+        ? "⚠️ Daily API limit reached. Service resumes at midnight UTC. Active signals are still being monitored."
+        : `API Error: ${errorMessage}`
 
       return NextResponse.json({
         success: true,
@@ -123,12 +132,12 @@ export async function GET() {
           confirmationTier: 0,
           signalMode: "none",
           activeSignal: null,
-          rejectionReason: null,
+          rejectionReason: apiError,
           signalConfidence: null,
           marketContext: null,
           performanceMetrics: null,
           isMarketOpen: marketStatus.isOpen,
-          marketStatusMessage: apiError ? `API Error: ${apiError}` : marketStatusMessage,
+          marketStatusMessage: apiError,
           newsFilterActive: tradingRestriction.avoid,
           newsFilterReason: tradingRestriction.reason,
           lastUpdate: Date.now(),
@@ -187,7 +196,6 @@ export async function GET() {
         if (marketStatus.isOpen) {
           try {
             if (confirmationTier === 3 && signalMode === "aggressive") {
-              // Tier 3 aggressive mode: Send limit order alert
               await sendTelegramAlert({
                 type: "limit_order",
                 signal: activeSignal,
@@ -197,7 +205,6 @@ export async function GET() {
               })
               console.log("[v0] ✅ IMMEDIATE Telegram alert sent for tier 3 aggressive signal")
             } else if (confirmationTier === 4) {
-              // Tier 4 conservative mode: Send limit order alert
               await sendTelegramAlert({
                 type: "limit_order",
                 signal: activeSignal,

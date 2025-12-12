@@ -102,7 +102,7 @@ export class TradingEngine {
       return "ranging"
     }
 
-    const recentCandles = candles.slice(-10)
+    const recentCandles = candles.slice(-3)
     const currentPrice = candles[candles.length - 1].close
 
     const bullishCandles = recentCandles.filter((c) => c.close > c.open).length
@@ -118,12 +118,12 @@ export class TradingEngine {
     }
 
     if (latestEMAFast < latestEMASlow) {
-      if (priceAboveEMAFast && bullishCandles >= 6) {
+      if (priceAboveEMAFast && bullishCandles >= 2) {
         return "bullish"
       }
       return "bearish"
     } else if (latestEMAFast > latestEMASlow) {
-      if (!priceAboveEMAFast && bearishCandles >= 6) {
+      if (!priceAboveEMAFast && bearishCandles >= 2) {
         return "bearish"
       }
       return "bullish"

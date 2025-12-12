@@ -20,6 +20,7 @@ interface TwelveDataResponse {
   }
   values: TwelveDataCandle[]
   status: string
+  code?: number
 }
 
 class TwelveDataClient {
@@ -30,6 +31,7 @@ class TwelveDataClient {
   private lastRequestTime = 0
   private readonly minRequestInterval = 2000 // 2 seconds between requests
   private currentKeyIndex = 0
+  private exhaustedKeys = new Set<number>()
 
   private getApiKeys(): string[] {
     const keys = []
@@ -59,12 +61,21 @@ class TwelveDataClient {
 
   private getNextApiKey(): string {
     const keys = this.getApiKeys()
-    const key = keys[this.currentKeyIndex]
 
-    // Rotate to next key for next request
-    this.currentKeyIndex = (this.currentKeyIndex + 1) % keys.length
+    let attempts = 0
+    while (attempts < keys.length) {
+      const key = keys[this.currentKeyIndex]
 
-    return key
+      if (!this.exhaustedKeys.has(this.currentKeyIndex)) {
+        this.currentKeyIndex = (this.currentKeyIndex + 1) % keys.length
+        return key
+      }
+
+      this.currentKeyIndex = (this.currentKeyIndex + 1) % keys.length
+      attempts++
+    }
+
+    throw new Error(`All ${keys.length} API keys have been exhausted. Daily limit reached. Resets at midnight UTC.`)
   }
 
   private async throttle(): Promise<void> {
@@ -135,6 +146,7 @@ class TwelveDataClient {
   async fetchCandles(timeframe: Timeframe, outputSize = 200): Promise<Candle[]> {
     return this.enqueueRequest(async () => {
       const interval = this.mapTimeframeToInterval(timeframe)
+      const keyIndexBeforeRequest = this.currentKeyIndex
       const apiKey = this.getNextApiKey()
 
       const url = new URL(`${this.baseUrl}/time_series`)
@@ -162,6 +174,21 @@ class TwelveDataClient {
         const data: TwelveDataResponse = await response.json()
 
         if (data.status === "error") {
+          const errorData = data as any
+          if (errorData.code === 429) {
+            console.warn(`[v0] API key ${keyIndexBeforeRequest + 1} exhausted. Marking as unavailable.`)
+            this.exhaustedKeys.add(keyIndexBeforeRequest)
+
+            if (this.exhaustedKeys.size >= this.getApiKeys().length) {
+              throw new Error(
+                `⚠️ Daily API limit reached (800 credits/day per key). Service will resume at midnight UTC. Consider upgrading at https://twelvedata.com/pricing`,
+              )
+            }
+
+            console.log(`[v0] Retrying with next API key...`)
+            return this.fetchCandles(timeframe, outputSize)
+          }
+
           throw new Error(`Twelve Data API error: ${JSON.stringify(data)}`)
         }
 
@@ -171,7 +198,6 @@ class TwelveDataClient {
 
         console.log("[v0] Successfully fetched", data.values.length, "candles for", timeframe)
 
-        // Normalize and sort by timestamp (oldest to newest)
         return data.values.map((candle) => this.normalizeCandle(candle)).sort((a, b) => a.timestamp - b.timestamp)
       } catch (error) {
         console.error(`[v0] Error fetching ${timeframe} candles:`, error)
@@ -201,6 +227,7 @@ class TwelveDataClient {
 
   async getLatestPrice(): Promise<number> {
     return this.enqueueRequest(async () => {
+      const keyIndexBeforeRequest = this.currentKeyIndex
       const apiKey = this.getNextApiKey()
 
       const url = new URL(`${this.baseUrl}/price`)
@@ -217,6 +244,18 @@ class TwelveDataClient {
         }
 
         const data = await response.json()
+
+        if (data.status === "error" && data.code === 429) {
+          console.warn(`[v0] API key ${keyIndexBeforeRequest + 1} exhausted. Marking as unavailable.`)
+          this.exhaustedKeys.add(keyIndexBeforeRequest)
+
+          if (this.exhaustedKeys.size >= this.getApiKeys().length) {
+            throw new Error(`⚠️ Daily API limit reached. Service resumes at midnight UTC.`)
+          }
+
+          return this.getLatestPrice()
+        }
+
         return Number.parseFloat(data.price)
       } catch (error) {
         console.error("[v0] Error fetching latest price:", error)
