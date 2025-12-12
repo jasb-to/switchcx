@@ -112,7 +112,7 @@ export class TradingEngine {
     const priceAboveEMASlow = currentPrice > latestEMASlow
 
     const emaSpread = Math.abs(latestEMAFast - latestEMASlow) / latestEMASlow
-    const emasStronglyAligned = emaSpread > 0.003
+    const emasStronglyAligned = emaSpread > 0.0015
 
     if (emasStronglyAligned) {
       return latestEMAFast > latestEMASlow ? "bullish" : "bearish"
@@ -232,9 +232,7 @@ export class TradingEngine {
       allowEarlyEntry &&
       trend1h_aggressive !== "ranging" &&
       trend15m_aggressive !== "ranging" &&
-      trend5m_aggressive !== "ranging" &&
-      trend1h_aggressive === trend15m_aggressive &&
-      trend1h_aggressive === trend5m_aggressive
+      trend1h_aggressive === trend15m_aggressive
 
     if (!conservativeMode && !aggressiveMode) {
       if (!conservativeMode) {
@@ -246,42 +244,23 @@ export class TradingEngine {
         )
       }
       if (!aggressiveMode) {
-        console.log(
-          "[v0] Aggressive mode (8/21 EMA) failed - 1H:",
-          trend1h_aggressive,
-          "15M:",
-          trend15m_aggressive,
-          "5M:",
-          trend5m_aggressive,
-        )
+        console.log("[v0] Aggressive mode (8/21 EMA) failed - 1H:", trend1h_aggressive, "15M:", trend15m_aggressive)
       }
       return null
     }
 
-    const signalMode = conservativeMode ? "conservative" : "aggressive"
+    const signalMode = aggressiveMode ? "aggressive" : "conservative"
     console.log("[v0] Signal mode:", signalMode, signalMode === "conservative" ? "(50/200 EMA)" : "(8/21 EMA)")
 
     // Use the trends from the appropriate mode for the rest of signal generation
-    const trend4h = conservativeMode ? trend4h_conservative : trend4h_conservative
-    const trend1h = conservativeMode ? trend1h_conservative : trend1h_aggressive
-    const trend15m = aggressiveMode ? trend15m_aggressive : this.detectTrend(marketData["15m"], "conservative")
-    const trend5m = aggressiveMode ? trend5m_aggressive : this.detectTrend(marketData["5m"], "conservative")
-
-    if (signalMode === "aggressive") {
-      // Check if 1H trend just flipped (last 3 candles must confirm)
-      const candles1h = marketData["1h"]
-      const recentCandles1h = candles1h.slice(-3)
-
-      const allBullish = recentCandles1h.every((c) => c.close > c.open)
-      const allBearish = recentCandles1h.every((c) => c.close < c.open)
-
-      if (!allBullish && !allBearish && trend1h_aggressive !== "ranging") {
-        console.log("[v0] Aggressive mode - 1H trend not stable (mixed candles in last 3), rejecting signal")
-        return null
-      }
-
-      console.log("[v0] Aggressive mode - 1H trend stability confirmed")
-    }
+    const trend4h = trend4h_conservative
+    const trend1h = signalMode === "aggressive" ? trend1h_aggressive : trend1h_conservative
+    const trend15m =
+      signalMode === "aggressive" ? trend15m_aggressive : this.detectTrend(marketData["15m"], "conservative")
+    const trend5m =
+      signalMode === "aggressive"
+        ? this.detectTrend(marketData["5m"], "aggressive")
+        : this.detectTrend(marketData["5m"], "conservative")
 
     // No need for complex score requirements - the breakout is the key signal
 
@@ -294,9 +273,12 @@ export class TradingEngine {
     // Get volatility metrics
     const volatility = this.calculateVolatilityMetrics(marketData["1h"])
 
-    // Check session filter
-    if (!shouldTradeInSession(session, volatility.volatilityScore)) {
-      console.log("[v0] Session filter failed")
+    if (!shouldTradeInSession(session, volatility.volatilityScore, 25)) {
+      console.log(
+        "[v0] Session filter failed - outside trading hours or low volatility (score:",
+        volatility.volatilityScore,
+        ")",
+      )
       return null
     }
 
@@ -324,9 +306,13 @@ export class TradingEngine {
       (validBreakout.direction === "bullish" && trend5m === "bearish") ||
       (validBreakout.direction === "bearish" && trend5m === "bullish")
 
-    if (stronglyOpposing) {
-      console.log("[v0] 5m trend strongly opposing - signal rejected")
+    if (stronglyOpposing && signalMode === "conservative") {
+      console.log("[v0] Conservative mode: 5m trend strongly opposing - signal rejected")
       return null
+    }
+
+    if (stronglyOpposing && signalMode === "aggressive") {
+      console.log("[v0] ⚠️ Aggressive mode: 5m opposing but allowing signal (reduced confidence expected)")
     }
 
     // Calculate Chandelier Exit

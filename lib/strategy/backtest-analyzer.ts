@@ -40,6 +40,28 @@ export class BacktestAnalyzer {
   ): Promise<BacktestResult> {
     console.log(`[v0] ===== STARTING ${mode.toUpperCase()} BACKTEST =====`)
     console.log(`[v0] Using real TradingEngine.generateSignal() method`)
+
+    const requiredTimeframes: Timeframe[] = ["4h", "1h", "15m", "5m"]
+    for (const tf of requiredTimeframes) {
+      if (!marketData[tf] || !Array.isArray(marketData[tf]) || marketData[tf].length === 0) {
+        console.error(`[v0] ❌ BACKTEST FAILED: ${tf} data is missing or empty`)
+        console.error(`[v0] marketData[${tf}]:`, marketData[tf])
+        return {
+          totalSignals: 0,
+          wins: 0,
+          losses: 0,
+          winRate: 0,
+          totalRMultiples: 0,
+          avgRMultiple: 0,
+          bestTrade: 0,
+          worstTrade: 0,
+          profitFactor: 0,
+          signals: [],
+        }
+      }
+    }
+
+    console.log(`[v0] ✅ All timeframe data validated`)
     console.log(`[v0] 4H candles: ${marketData["4h"].length}`)
     console.log(`[v0] 1H candles: ${marketData["1h"].length}`)
     console.log(`[v0] 15M candles: ${marketData["15m"].length}`)
@@ -54,36 +76,59 @@ export class BacktestAnalyzer {
     const signals: BacktestSignal[] = []
     const candles1h = marketData["1h"]
 
+    let candlesChecked = 0
+    let signalsAttempted = 0
+
     // Start from candle 150 to have enough history for indicators
-    for (let i = 150; i < candles1h.length - 20; i += 5) {
+    for (let i = 150; i < candles1h.length - 20; i += 2) {
+      candlesChecked++
       const currentPrice = candles1h[i].close
+      const timestamp = new Date(candles1h[i].timestamp).toISOString()
 
       const historicalData: Record<Timeframe, Candle[]> = {
-        "4h": marketData["4h"].slice(0, Math.floor(i / 4) + 1),
+        "4h": marketData["4h"].slice(0, Math.floor(i / 4) + 50), // Ensure enough 4H data
         "1h": marketData["1h"].slice(0, i + 1),
-        "15m": marketData["15m"].slice(0, i * 4 + 1),
-        "5m": marketData["5m"].slice(0, i * 12 + 1),
+        "15m": marketData["15m"].slice(0, Math.min(i * 4 + 50, marketData["15m"].length)), // Ensure enough 15M data
+        "5m": marketData["5m"].slice(0, Math.min(i * 12 + 50, marketData["5m"].length)), // Ensure enough 5M data
       }
 
-      const allowEarlyEntry = mode === "aggressive"
-      const signal = await this.engine.generateSignal(historicalData, currentPrice, allowEarlyEntry)
-
-      if (signal && signal.metadata?.signalMode === mode) {
+      if (candlesChecked % 10 === 0) {
         console.log(
-          `[v0] ✅ ${mode} signal at candle ${i}, time: ${new Date(candles1h[i].timestamp).toISOString()}, ${signal.direction} @ $${currentPrice.toFixed(2)}`,
+          `[v0] Checking candle ${i} (${timestamp}): Price $${currentPrice.toFixed(2)}, Historical slices: 4H=${historicalData["4h"].length}, 1H=${historicalData["1h"].length}, 15M=${historicalData["15m"].length}, 5M=${historicalData["5m"].length}`,
         )
+      }
 
-        const futureCandles = candles1h.slice(i + 1, i + 41) // Check next 40 candles (40 hours)
-        const tradeOutcome = this.simulateTrade(signal, futureCandles)
+      try {
+        signalsAttempted++
+        const allowEarlyEntry = mode === "aggressive"
+        const signal = await this.engine.generateSignal(historicalData, currentPrice, allowEarlyEntry)
 
-        signals.push(tradeOutcome)
+        if (signal) {
+          console.log(`[v0] Signal generated at ${timestamp}: mode=${signal.metadata?.signalMode}, looking for ${mode}`)
 
-        // Skip ahead to avoid overlapping signals
-        i += 20
+          if (signal.metadata?.signalMode === mode) {
+            console.log(
+              `[v0] ✅ ${mode} signal at candle ${i}, time: ${timestamp}, ${signal.direction} @ $${currentPrice.toFixed(2)}`,
+            )
+
+            const futureCandles = candles1h.slice(i + 1, i + 41) // Check next 40 candles (40 hours)
+            const tradeOutcome = this.simulateTrade(signal, futureCandles)
+
+            signals.push(tradeOutcome)
+
+            // Skip ahead to avoid overlapping signals
+            i += 20
+          }
+        }
+      } catch (error) {
+        console.error(`[v0] Error generating signal at candle ${i}:`, error)
       }
     }
 
-    console.log(`[v0] Backtest complete. Found ${signals.length} ${mode} signals.`)
+    console.log(
+      `[v0] Backtest complete. Checked ${candlesChecked} candles, attempted ${signalsAttempted} signal generations.`,
+    )
+    console.log(`[v0] Found ${signals.length} ${mode} signals.`)
     return this.calculateResults(signals, mode)
   }
 
