@@ -16,6 +16,7 @@ class SignalStore {
       createdAt: Date.now(),
       lastValidated: Date.now(),
     }
+    console.log("[v0] SignalStore: Active signal set -", signal.direction, "Entry:", signal.entryPrice)
   }
 
   getActiveSignal(): TradingSignal | null {
@@ -24,6 +25,7 @@ class SignalStore {
     // Check if signal has expired (4 hours)
     const age = Date.now() - this.activeSignal.createdAt
     if (age > this.SIGNAL_TTL) {
+      console.log("[v0] SignalStore: Signal expired (age:", Math.floor(age / 60000), "minutes)")
       this.activeSignal = null
       return null
     }
@@ -34,6 +36,7 @@ class SignalStore {
   }
 
   invalidateSignal(): void {
+    console.log("[v0] SignalStore: Signal invalidated")
     this.activeSignal = null
   }
 
@@ -44,6 +47,11 @@ class SignalStore {
   getSignalAge(): number {
     if (!this.activeSignal) return 0
     return Date.now() - this.activeSignal.createdAt
+  }
+
+  getActiveSignalDirection(): "bullish" | "bearish" | null {
+    if (!this.activeSignal) return null
+    return this.activeSignal.signal.direction
   }
 }
 

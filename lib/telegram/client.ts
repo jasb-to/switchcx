@@ -104,6 +104,7 @@ Market conditions are building. Monitor for further confirmations.
     const expectedWinRate = signal.metadata?.signalMode === "conservative" ? "65-75%" : "55-65%"
 
     const confidenceScore = confidence?.score || 0
+    const displayScore = confidenceScore > 10 ? (confidenceScore / 10).toFixed(1) : confidenceScore.toFixed(1)
     const confidenceLabel = confidenceScore >= 8 ? "🟢 STRONG" : confidenceScore >= 6 ? "🟡 GOOD" : "🟠 MODERATE"
 
     const breakoutTypeEmoji = signal.breakoutZone?.breakoutType === "trendline" ? "📐" : "📊"
@@ -131,7 +132,7 @@ Pattern: Dynamic trendline break`
 ${emoji} *LIMIT ORDER READY* (3/4 Confirmations)
 
 ${modeEmoji} *Mode*: ${modeLabel}
-📊 *Confidence*: ${confidenceScore}/10 ${confidenceLabel}
+📊 *Confidence*: ${displayScore}/10 ${confidenceLabel}
 🎯 *Expected Win Rate*: ${expectedWinRate}
 
 Direction: ${direction} (${positionType})
@@ -258,7 +259,7 @@ ${emoji} *SIGNAL CLOSED*
 
 Direction: ${signal.direction.toUpperCase()}
 Entry: $${this.formatPrice(signal.entryPrice)}
-Exit: $${signal.exitPrice ? this.formatPrice(signal.exitPrice) : "N/A"}
+Exit: $${this.formatPrice(signal.exitPrice ? signal.exitPrice : "N/A")}
 
 ${pnlEmoji} *P&L*: ${signal.pnl ? `$${signal.pnl.toFixed(2)}` : "N/A"}
 
