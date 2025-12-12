@@ -125,15 +125,18 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const secret = searchParams.get("secret")
 
-  console.log("[v0] ==========================================")
-  console.log("[v0] CRON REQUEST RECEIVED")
+  console.log("[v0] ==============================================")
+  console.log("[v0] 🤖 CRON JOB STARTING - Market Scan Initiated")
+  console.log("[v0] ==============================================")
+  console.log("[v0] Timestamp:", new Date().toISOString())
+
   console.log("[v0] Secret from URL:", secret ? `${secret.substring(0, 5)}...` : "MISSING")
   console.log(
     "[v0] Expected secret:",
     process.env.CRON_SECRET ? `${process.env.CRON_SECRET.substring(0, 5)}...` : "NOT SET",
   )
   console.log("[v0] Secrets match:", secret === process.env.CRON_SECRET)
-  console.log("[v0] ==========================================")
+  console.log("[v0] ==============================================")
 
   if (secret !== process.env.CRON_SECRET) {
     console.log("[v0] ❌ UNAUTHORIZED - Secret mismatch!")
@@ -141,10 +144,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    console.log("[v0] ==========================================")
+    console.log("[v0] ==============================================")
     console.log("[v0] === CRON JOB STARTED ===")
     console.log("[v0] Timestamp:", new Date().toISOString())
-    console.log("[v0] ==========================================")
+    console.log("[v0] ==============================================")
 
     const marketStatus = getGoldMarketStatus()
     console.log("[v0] Market status:", marketStatus.isOpen ? "OPEN" : "CLOSED")
@@ -187,25 +190,25 @@ export async function GET(request: NextRequest) {
     const currentTier = tierResult.tier
     const currentMode = tierResult.mode
 
-    console.log("[v0] ==========================================")
+    console.log("[v0] ==============================================")
     console.log("[v0] TIER CALCULATION RESULT:")
     console.log("[v0] Current tier:", currentTier)
     console.log("[v0] Current mode:", currentMode)
     console.log("[v0] Last alert tier:", lastAlertTier)
     console.log("[v0] Debug info:", JSON.stringify(tierResult.debugInfo, null, 2))
-    console.log("[v0] ==========================================")
+    console.log("[v0] ==============================================")
 
     console.log("[v0] Scores:", timeframeScores.map((s) => `${s.timeframe}: ${s.score}/${s.maxScore}`).join(", "))
 
     const shouldSendAlert = marketStatus.isOpen && currentTier > lastAlertTier && currentTier >= 1
 
-    console.log("[v0] ==========================================")
+    console.log("[v0] ==============================================")
     console.log("[v0] ALERT CHECK:")
     console.log("[v0] Market open:", marketStatus.isOpen)
     console.log("[v0] Current tier > last tier:", currentTier > lastAlertTier, `(${currentTier} > ${lastAlertTier})`)
     console.log("[v0] Current tier >= 1:", currentTier >= 1)
     console.log("[v0] Should send alert:", shouldSendAlert)
-    console.log("[v0] ==========================================")
+    console.log("[v0] ==============================================")
 
     if (lastActiveSignal) {
       const trend1h = tradingEngine.detectTrend(marketData["1h"])
@@ -321,8 +324,22 @@ export async function GET(request: NextRequest) {
           console.log("[v0] ✅ TIER 2 alert sent successfully")
         } else if (currentTier === 3) {
           console.log("[v0] 📋 Sending TIER 3 alert (Limit Order)...")
+          console.log("[v0] Current price:", currentPrice)
+          const trend4h = tradingEngine.detectTrend(marketData["4h"])
+          const trend1h = tradingEngine.detectTrend(marketData["1h"])
+          const trend15m = tradingEngine.detectTrend(marketData["15m"])
+          const trend5m = tradingEngine.detectTrend(marketData["5m"])
+          console.log("[v0] Market trends - 4H:", trend4h, "1H:", trend1h, "15M:", trend15m, "5M:", trend5m)
+
           const signal = await tradingEngine.generateSignal(marketData, currentPrice)
           if (signal) {
+            console.log("[v0] ✅ Signal generated for TIER 3")
+            console.log("[v0]   Direction:", signal.direction)
+            console.log("[v0]   Entry:", signal.entryPrice)
+            console.log("[v0]   Stop Loss:", signal.stopLoss)
+            console.log("[v0]   TP1:", signal.tp1)
+            console.log("[v0]   TP2:", signal.tp2)
+
             const enhancedTimeframeScores = timeframeScores.map((score) => {
               const candles = marketData[score.timeframe]
               const chandelier = calculateChandelierExit(candles, 22, 3)
@@ -357,9 +374,9 @@ export async function GET(request: NextRequest) {
             await sendTelegramAlert({
               type: "limit_order",
               signal,
-              confidence: signalConfidence, // Pass confidence to alert
+              confidence: signalConfidence,
             })
-            console.log("[v0] ✅ TIER 3 alert sent successfully")
+            console.log("[v0] ✅ TIER 3 Telegram alert sent successfully")
             lastActiveSignal = signal
 
             const tradeRecord: TradeHistory = {
@@ -376,12 +393,27 @@ export async function GET(request: NextRequest) {
             tradeHistoryManager.addTrade(tradeRecord)
             console.log("[v0] Trade recorded in history:", tradeRecord.id)
           } else {
-            console.log("[v0] ⚠️ No signal generated for tier 3 alert")
+            console.log("[v0] ⚠️ No signal generated for tier 3 alert - signal generation returned null")
+            console.log("[v0] Possible reasons: session filter, risk management, or breakout not detected")
           }
         } else if (currentTier === 4) {
           console.log("[v0] 🚀 Sending TIER 4 alert (ENTER NOW)...")
+          console.log("[v0] Current price:", currentPrice)
+          const trend4h = tradingEngine.detectTrend(marketData["4h"])
+          const trend1h = tradingEngine.detectTrend(marketData["1h"])
+          const trend15m = tradingEngine.detectTrend(marketData["15m"])
+          const trend5m = tradingEngine.detectTrend(marketData["5m"])
+          console.log("[v0] Market trends - 4H:", trend4h, "1H:", trend1h, "15M:", trend15m, "5M:", trend5m)
+
           const signal = await tradingEngine.generateSignal(marketData, currentPrice)
           if (signal) {
+            console.log("[v0] ✅ Signal generated for TIER 4")
+            console.log("[v0]   Direction:", signal.direction)
+            console.log("[v0]   Entry:", signal.entryPrice)
+            console.log("[v0]   Stop Loss:", signal.stopLoss)
+            console.log("[v0]   TP1:", signal.tp1)
+            console.log("[v0]   TP2:", signal.tp2)
+
             const enhancedTimeframeScores = timeframeScores.map((score) => {
               const candles = marketData[score.timeframe]
               const chandelier = calculateChandelierExit(candles, 22, 3)
@@ -416,9 +448,9 @@ export async function GET(request: NextRequest) {
             await sendTelegramAlert({
               type: "entry",
               signal,
-              confidence: signalConfidence, // Pass confidence to alert
+              confidence: signalConfidence,
             })
-            console.log("[v0] ✅ TIER 4 alert sent successfully")
+            console.log("[v0] ✅ TIER 4 Telegram alert sent successfully")
             lastActiveSignal = signal
 
             const tradeRecord: TradeHistory = {
@@ -435,7 +467,8 @@ export async function GET(request: NextRequest) {
             tradeHistoryManager.addTrade(tradeRecord)
             console.log("[v0] Trade recorded in history:", tradeRecord.id)
           } else {
-            console.log("[v0] ⚠️ No signal generated for tier 4 alert")
+            console.log("[v0] ⚠️ No signal generated for tier 4 alert - signal generation returned null")
+            console.log("[v0] Possible reasons: session filter, risk management, or breakout not detected")
           }
         }
 
@@ -465,9 +498,9 @@ export async function GET(request: NextRequest) {
       lastAlertTier = 0
     }
 
-    console.log("[v0] ==========================================")
-    console.log("[v0] === CRON JOB COMPLETED ===")
-    console.log("[v0] ==========================================")
+    console.log("[v0] ==============================================")
+    console.log("[v0] 🤖 CRON JOB COMPLETED")
+    console.log("[v0] ==============================================")
 
     return NextResponse.json({
       success: true,

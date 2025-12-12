@@ -327,13 +327,17 @@ export class TradingEngine {
     const tp1 = validBreakout.direction === "bullish" ? currentPrice + riskAmount * 2 : currentPrice - riskAmount * 2
     const tp2 = validBreakout.direction === "bullish" ? currentPrice + riskAmount * 3 : currentPrice - riskAmount * 3
 
+    // For SHORT trades, stop loss should be ABOVE entry (chandelier short stop is already above)
+    // For LONG trades, stop loss should be BELOW entry (chandelier long stop is already below)
+    const stopLoss = chandelierStop
+
     // Generate signal
     const signal: TradingSignal = {
       id: `signal_${Date.now()}`,
       timestamp: Date.now(),
       direction: validBreakout.direction,
       entryPrice: currentPrice,
-      stopLoss: chandelierStop,
+      stopLoss: stopLoss,
       takeProfit: tp1,
       tp1,
       tp2,
@@ -348,6 +352,14 @@ export class TradingEngine {
         breakoutType: "zone" in validBreakout ? "horizontal" : "trendline",
       },
     }
+
+    console.log("[v0] 📊 Signal details:")
+    console.log("[v0]   Direction:", signal.direction)
+    console.log("[v0]   Entry:", signal.entryPrice.toFixed(2))
+    console.log("[v0]   Stop Loss:", signal.stopLoss.toFixed(2))
+    console.log("[v0]   TP1 (2R):", signal.tp1.toFixed(2))
+    console.log("[v0]   TP2 (3R):", signal.tp2.toFixed(2))
+    console.log("[v0]   Risk:", riskAmount.toFixed(2))
 
     this.riskManagement.currentSessionTrades++
 
