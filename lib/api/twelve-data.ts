@@ -28,7 +28,7 @@ class TwelveDataClient {
   private requestQueue: Array<() => Promise<void>> = []
   private isProcessing = false
   private lastRequestTime = 0
-  private readonly minRequestInterval = 1000 // 1 second between requests
+  private readonly minRequestInterval = 2000 // 2 seconds between requests
   private currentKeyIndex = 0
 
   private getApiKeys(): string[] {
@@ -152,7 +152,7 @@ class TwelveDataClient {
           headers: {
             Accept: "application/json",
           },
-          next: { revalidate: 300 }, // 5 minutes cache during market hours
+          next: { revalidate: 600 }, // 10 minutes cache during market hours
         })
 
         if (!response.ok) {
@@ -189,7 +189,7 @@ class TwelveDataClient {
         results[timeframe] = await this.fetchCandles(timeframe, 200)
         console.log("[v0] Successfully fetched", results[timeframe].length, "candles for", timeframe)
 
-        await new Promise((resolve) => setTimeout(resolve, 1200)) // Optimized delay between API calls
+        await new Promise((resolve) => setTimeout(resolve, 2000)) // Optimized delay between API calls
       } catch (error) {
         console.error(`Failed to fetch ${timeframe} data:`, error)
         results[timeframe] = []

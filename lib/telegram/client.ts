@@ -106,11 +106,26 @@ Market conditions are building. Monitor for further confirmations.
     const confidenceScore = confidence?.score || 0
     const confidenceLabel = confidenceScore >= 8 ? "🟢 STRONG" : confidenceScore >= 6 ? "🟡 GOOD" : "🟠 MODERATE"
 
-    const breakoutTypeEmoji = signal.breakoutZone.breakoutType === "trendline" ? "📐" : "📊"
-    const breakoutTypeLabel = signal.breakoutZone.breakoutType === "trendline" ? "TRENDLINE BREAK" : "ZONE BREAK"
-    const trendlineInfo = signal.breakoutZone.trendlineAngle
+    const breakoutTypeEmoji = signal.breakoutZone?.breakoutType === "trendline" ? "📐" : "📊"
+    const breakoutTypeLabel =
+      signal.breakoutZone?.breakoutType === "trendline"
+        ? "TRENDLINE BREAK"
+        : signal.breakoutZone
+          ? "ZONE BREAK"
+          : "TRENDLINE BREAK"
+    const trendlineInfo = signal.breakoutZone?.trendlineAngle
       ? `\nAngle: ${signal.breakoutZone.trendlineAngle.toFixed(1)}°`
       : ""
+
+    // Build breakout details section
+    const breakoutDetails = signal.breakoutZone
+      ? `${breakoutTypeEmoji} *${breakoutTypeLabel}*
+Type: ${signal.breakoutZone.type.toUpperCase()}
+Level: $${this.formatPrice(signal.breakoutZone.level)}
+Strength: ${signal.breakoutZone.strength}/100${trendlineInfo}`
+      : `${breakoutTypeEmoji} *TRENDLINE BREAKOUT*
+Direction: ${direction}
+Pattern: Dynamic trendline break`
 
     return `
 ${emoji} *LIMIT ORDER READY* (3/4 Confirmations)
@@ -127,10 +142,7 @@ ${signal.tp2 ? `TP2 (3R): $${this.formatPrice(signal.tp2)}` : ""}
 
 ⏰ *Session*: ${session}
 
-${breakoutTypeEmoji} *${breakoutTypeLabel}*
-Type: ${signal.breakoutZone.type.toUpperCase()}
-Level: $${this.formatPrice(signal.breakoutZone.level)}
-Strength: ${signal.breakoutZone.strength}/100${trendlineInfo}
+${breakoutDetails}
 
 📊 *Timeframe Confirmations*
 ${signal.timeframeScores
@@ -173,11 +185,27 @@ Place limit order and wait for final confirmation.
 
     const confidenceScore = confidence?.score || 0
 
-    const breakoutTypeEmoji = signal.breakoutZone.breakoutType === "trendline" ? "📐" : "📊"
-    const breakoutTypeLabel = signal.breakoutZone.breakoutType === "trendline" ? "TRENDLINE BREAK" : "ZONE BREAK"
-    const trendlineInfo = signal.breakoutZone.trendlineAngle
+    const breakoutTypeEmoji = signal.breakoutZone?.breakoutType === "trendline" ? "📐" : "📊"
+    const breakoutTypeLabel =
+      signal.breakoutZone?.breakoutType === "trendline"
+        ? "TRENDLINE BREAK"
+        : signal.breakoutZone
+          ? "ZONE BREAK"
+          : "TRENDLINE BREAK"
+    const trendlineInfo = signal.breakoutZone?.trendlineAngle
       ? `\nAngle: ${signal.breakoutZone.trendlineAngle.toFixed(1)}°`
       : ""
+
+    // Build breakout details section
+    const breakoutDetails = signal.breakoutZone
+      ? `${breakoutTypeEmoji} *${breakoutTypeLabel}*
+Type: ${signal.breakoutZone.type.toUpperCase()}
+Level: $${this.formatPrice(signal.breakoutZone.level)}
+Strength: ${signal.breakoutZone.strength}/100
+Touches: ${signal.breakoutZone.touches}${trendlineInfo}`
+      : `${breakoutTypeEmoji} *TRENDLINE BREAKOUT*
+Direction: ${direction}
+Pattern: Dynamic trendline break`
 
     return `
 ${emoji} *ENTER NOW!* (4/4 Confirmations) ${emoji}
@@ -197,11 +225,7 @@ Chandelier Stop: $${this.formatPrice(signal.chandelierStop)}
 
 ⏰ *Session*: ${session}
 
-${breakoutTypeEmoji} *${breakoutTypeLabel}*
-Type: ${signal.breakoutZone.type.toUpperCase()}
-Level: $${this.formatPrice(signal.breakoutZone.level)}
-Strength: ${signal.breakoutZone.strength}/100
-Touches: ${signal.breakoutZone.touches}${trendlineInfo}
+${breakoutDetails}
 
 📈 *Volatility*
 ATR: $${this.formatPrice(signal.volatility.atr)}

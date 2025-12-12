@@ -8,84 +8,12 @@ import { getMarketContext, shouldAvoidTrading } from "@/lib/market-context/intel
 import { calculateSignalConfidence } from "@/lib/strategy/confidence-scorer"
 import { tradeHistoryManager } from "@/lib/database/trade-history"
 import { calculateChandelierExit } from "@/lib/strategy/indicators"
+import { calculateConfirmationTier } from "@/lib/strategy/tier-calculator"
+import { signalStore } from "@/lib/cache/signal-store"
+import { sendTelegramAlert } from "@/lib/telegram/client"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
-
-function calculateConfirmationTier(
-  timeframeScores: any[],
-  trend4h: Direction,
-  trend1h: Direction,
-  trend15m: Direction,
-  trend5m: Direction,
-): { tier: number; mode: "conservative" | "aggressive" | "none" } {
-  const score4h = timeframeScores.find((s) => s.timeframe === "4h")
-  const score1h = timeframeScores.find((s) => s.timeframe === "1h")
-  const score15m = timeframeScores.find((s) => s.timeframe === "15m")
-  const score5m = timeframeScores.find((s) => s.timeframe === "5m")
-
-  if (!score4h || !score1h || !score15m || !score5m) return { tier: 0, mode: "none" }
-
-  const conservativeMode = trend4h === trend1h && trend4h !== "ranging" && trend1h !== "ranging"
-
-  const conservative5mOpposing =
-    conservativeMode &&
-    ((trend4h === "bullish" && trend5m === "bearish") || (trend4h === "bearish" && trend5m === "bullish"))
-
-  const aggressiveMode =
-    trend1h !== "ranging" &&
-    trend15m !== "ranging" &&
-    trend5m !== "ranging" &&
-    trend1h === trend15m &&
-    trend1h === trend5m
-
-  const strongTimeframes = [score4h.score >= 3, score1h.score >= 2, score15m.score >= 2, score5m.score >= 2].filter(
-    Boolean,
-  ).length
-
-  if (strongTimeframes >= 2) {
-    const partialAlignment =
-      (trend1h === trend15m && trend1h !== "ranging") ||
-      (trend15m === trend5m && trend15m !== "ranging") ||
-      (trend4h === trend1h && trend4h !== "ranging")
-
-    if (partialAlignment && strongTimeframes >= 2) {
-      if (aggressiveMode && strongTimeframes >= 3) {
-        return { tier: 3, mode: "aggressive" }
-      }
-      if (conservativeMode && strongTimeframes >= 3 && !conservative5mOpposing) {
-        return { tier: 3, mode: "conservative" }
-      }
-      if (conservativeMode && conservative5mOpposing) {
-        return { tier: 2, mode: "conservative" }
-      }
-      return { tier: 2, mode: aggressiveMode ? "aggressive" : conservativeMode ? "conservative" : "none" }
-    }
-
-    return { tier: 1, mode: "none" }
-  }
-
-  if (conservativeMode || aggressiveMode) {
-    let tier = 0
-    if (score4h.score >= 3) tier++
-    if (score1h.score >= 2) tier++
-    if (score15m.score >= 1) tier++
-    if (score5m.score >= 1) tier++
-
-    if (tier === 4) {
-      if (conservativeMode && conservative5mOpposing) {
-        return { tier: 2, mode: "conservative" }
-      }
-      return { tier: 4, mode: conservativeMode ? "conservative" : "aggressive" }
-    }
-    if (conservativeMode && conservative5mOpposing) {
-      return { tier: 2, mode: "conservative" }
-    }
-    return { tier: Math.max(2, tier), mode: conservativeMode ? "conservative" : "aggressive" }
-  }
-
-  return { tier: 0, mode: "none" }
-}
 
 export async function GET() {
   try {
@@ -94,6 +22,40 @@ export async function GET() {
 
     const marketContext = await getMarketContext()
     const tradingRestriction = shouldAvoidTrading(marketContext)
+
+    const existingSignal = signalStore.getActiveSignal()
+    if (existingSignal) {
+      const performanceMetrics = tradeHistoryManager.calculatePerformanceMetrics()
+      const currentPrice = await twelveDataClient.getLatestPrice()
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          currentPrice,
+          currentSession: getCurrentSession(),
+          trend4h: existingSignal.direction === "bullish" ? "bullish" : "bearish",
+          trend1h: existingSignal.direction === "bullish" ? "bullish" : "bearish",
+          trend15m: existingSignal.direction === "bullish" ? "bullish" : "bearish",
+          trend5m: existingSignal.direction === "bullish" ? "bullish" : "bearish",
+          isChopRange: false,
+          volatility: existingSignal.volatility,
+          timeframeScores: existingSignal.timeframeScores,
+          confirmationTier: 4,
+          signalMode: existingSignal.mode || "aggressive",
+          activeSignal: existingSignal,
+          rejectionReason: null,
+          signalConfidence: existingSignal.confidence,
+          marketContext,
+          performanceMetrics,
+          isMarketOpen: marketStatus.isOpen,
+          marketStatusMessage,
+          newsFilterActive: tradingRestriction.avoid,
+          newsFilterReason: tradingRestriction.reason,
+          lastUpdate: Date.now(),
+          signalAge: signalStore.getSignalAge(),
+        },
+      })
+    }
 
     let marketData: Record<Timeframe, any[]> = {
       "4h": [],
@@ -221,6 +183,36 @@ export async function GET() {
             recommendation: signalConfidence.score >= 7 ? "take" : "consider",
           }
         }
+
+        if (marketStatus.isOpen) {
+          try {
+            if (confirmationTier === 3 && signalMode === "aggressive") {
+              // Tier 3 aggressive mode: Send limit order alert
+              await sendTelegramAlert({
+                type: "limit_order",
+                signal: activeSignal,
+                confidence: signalConfidence,
+                timeframeScores: enhancedTimeframeScores,
+                price: currentPrice,
+              })
+              console.log("[v0] ✅ IMMEDIATE Telegram alert sent for tier 3 aggressive signal")
+            } else if (confirmationTier === 4) {
+              // Tier 4 conservative mode: Send limit order alert
+              await sendTelegramAlert({
+                type: "limit_order",
+                signal: activeSignal,
+                confidence: signalConfidence,
+                timeframeScores: enhancedTimeframeScores,
+                price: currentPrice,
+              })
+              console.log("[v0] ✅ IMMEDIATE Telegram alert sent for tier 4 signal")
+            }
+          } catch (telegramError) {
+            console.error("[v0] ❌ Failed to send immediate Telegram alert:", telegramError)
+          }
+        }
+
+        signalStore.setActiveSignal(activeSignal)
       }
     } else {
       if (signalMode === "none") {
@@ -276,36 +268,7 @@ export async function GET() {
           rangeCompression: false,
           volatilityScore: 0,
         },
-        timeframeScores: [
-          {
-            timeframe: "4h",
-            score: 0,
-            maxScore: 5,
-            criteria: { adx: false, volume: false, emaAlignment: false, trendDirection: false, volatility: false },
-            adxValue: 0,
-          },
-          {
-            timeframe: "1h",
-            score: 0,
-            maxScore: 5,
-            criteria: { adx: false, volume: false, emaAlignment: false, trendDirection: false, volatility: false },
-            adxValue: 0,
-          },
-          {
-            timeframe: "15m",
-            score: 0,
-            maxScore: 5,
-            criteria: { adx: false, volume: false, emaAlignment: false, trendDirection: false, volatility: false },
-            adxValue: 0,
-          },
-          {
-            timeframe: "5m",
-            score: 0,
-            maxScore: 5,
-            criteria: { adx: false, volume: false, emaAlignment: false, trendDirection: false, volatility: false },
-            adxValue: 0,
-          },
-        ],
+        timeframeScores: [],
         confirmationTier: 0,
         signalMode: "none",
         activeSignal: null,

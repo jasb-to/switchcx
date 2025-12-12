@@ -9,7 +9,7 @@ interface ActiveTradeCardProps {
   signal: TradingSignal | null
   currentPrice: number
   rejectionReason?: string
-  signalMode?: "conservative" | "aggressive" | "none" // Added signal mode prop
+  signalMode?: "conservative" | "aggressive" | "none"
 }
 
 export function ActiveTradeCard({ signal, currentPrice, rejectionReason, signalMode }: ActiveTradeCardProps) {
@@ -35,10 +35,8 @@ export function ActiveTradeCard({ signal, currentPrice, rejectionReason, signalM
   const pnl = isLong ? currentPrice - signal.entryPrice : signal.entryPrice - currentPrice
   const pnlPercent = (pnl / signal.entryPrice) * 100
 
-  // Calculate take profit levels based on ATR
-  const atr = signal.volatility.atr
-  const tp1 = isLong ? signal.entryPrice + atr * 2 : signal.entryPrice - atr * 2
-  const tp2 = isLong ? signal.entryPrice + atr * 4 : signal.entryPrice - atr * 4
+  const tp1 = signal.tp1 || signal.takeProfit || 0
+  const tp2 = signal.tp2 || 0
 
   const isPending = signal.status === "pending"
   const title = isPending ? "Limit Order Ready" : "Active Trade"
@@ -152,7 +150,7 @@ export function ActiveTradeCard({ signal, currentPrice, rejectionReason, signalM
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Target className="h-3 w-3" />
-              Take Profit 1 (2x ATR)
+              Take Profit 1 (2R)
             </p>
             <p className="text-lg font-bold text-success">${tp1.toFixed(2)}</p>
             <p className="text-xs text-muted-foreground">Close 50% position</p>
@@ -161,7 +159,7 @@ export function ActiveTradeCard({ signal, currentPrice, rejectionReason, signalM
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Target className="h-3 w-3" />
-              Take Profit 2 (4x ATR)
+              Take Profit 2 (3R)
             </p>
             <p className="text-lg font-bold text-success">${tp2.toFixed(2)}</p>
             <p className="text-xs text-muted-foreground">Close remaining 50%</p>

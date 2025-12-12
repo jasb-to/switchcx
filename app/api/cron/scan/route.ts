@@ -1,4 +1,4 @@
-// Cron job API route - runs every 10 minutes with tiered alerts
+// Cron job API route - runs every 5 minutes with tiered alerts
 
 import { type NextRequest, NextResponse } from "next/server"
 import { twelveDataClient } from "@/lib/api/twelve-data"
@@ -8,6 +8,7 @@ import { sendTelegramAlert } from "@/lib/telegram/client"
 import { getGoldMarketStatus } from "@/lib/utils/market-hours"
 import { getMarketContext, shouldAvoidTrading } from "@/lib/market-context/intelligence"
 import { tradeHistoryManager } from "@/lib/database/trade-history"
+import { calculateConfirmationTier } from "@/lib/strategy/tier-calculator"
 
 export const maxDuration = 60
 export const dynamic = "force-dynamic"
@@ -17,28 +18,62 @@ let lastAlertTier = 0
 let lastActiveSignal: any | null = null
 
 export async function GET(request: NextRequest) {
-  console.log("[v0] ========== CRON JOB TRIGGERED ==========")
+  console.log("[v0] ========================================")
+  console.log("[v0] 🤖 CRON JOB HIT - Request received")
   console.log("[v0] Timestamp:", new Date().toISOString())
-  console.log("[v0] Request URL:", request.url)
+  console.log("[v0] URL:", request.url)
+  console.log("[v0] Method:", request.method)
+  console.log("[v0] ========================================")
 
   try {
     const authHeader = request.headers.get("authorization")
+    const urlSecret = request.nextUrl.searchParams.get("secret")
     const cronSecret = process.env.CRON_SECRET
 
+    console.log("[v0] 🔐 AUTHENTICATION CHECK")
     console.log("[v0] Auth header present:", !!authHeader)
+    console.log("[v0] URL secret present:", !!urlSecret)
     console.log("[v0] CRON_SECRET configured:", !!cronSecret)
 
+    if (urlSecret) {
+      console.log("[v0] URL secret value:", urlSecret)
+    }
+    if (cronSecret) {
+      console.log("[v0] Expected CRON_SECRET:", cronSecret)
+      console.log("[v0] ⚠️  UPDATE YOUR CRON-JOB.ORG URL TO:")
+      console.log("[v0] ⚠️  https://switchcx.vercel.app/api/cron/scan?secret=" + cronSecret)
+    }
+
     if (!cronSecret) {
-      console.error("[v0] CRON_SECRET not configured in environment variables")
+      console.error("[v0] ❌ ERROR: CRON_SECRET not configured in Vercel")
       return NextResponse.json({ success: false, error: "CRON_SECRET not configured" }, { status: 500 })
     }
 
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      console.error("[v0] Invalid CRON_SECRET - Authentication failed")
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    const providedSecret = authHeader?.replace("Bearer ", "") || urlSecret
+
+    if (!providedSecret || providedSecret !== cronSecret) {
+      console.error("[v0] ❌ AUTHENTICATION FAILED")
+      console.error("[v0] Expected secret (first 10 chars):", cronSecret.substring(0, 10) + "...")
+      console.error(
+        "[v0] Received secret (first 10 chars):",
+        providedSecret ? providedSecret.substring(0, 10) + "..." : "none",
+      )
+      console.error("[v0] ⚠️  UPDATE YOUR CRON-JOB.ORG URL TO:")
+      console.error("[v0] ⚠️  https://switchcx.vercel.app/api/cron/scan?secret=" + cronSecret)
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unauthorized",
+          hint: "Update cron-job.org URL with ?secret=YOUR_CRON_SECRET from Vercel env vars",
+          expectedSecretPreview: cronSecret.substring(0, 10) + "...",
+          receivedSecretPreview: providedSecret ? providedSecret.substring(0, 10) + "..." : "none",
+        },
+        { status: 401 },
+      )
     }
 
-    console.log("[v0] Authentication successful, proceeding with cron job...")
+    console.log("[v0] ✅ Authentication successful!")
 
     console.log("[v0] ==============================================")
     console.log("[v0] 🤖 CRON JOB STARTING - Market Scan Initiated")
@@ -82,7 +117,14 @@ export async function GET(request: NextRequest) {
     // Analyze timeframes
     const timeframeScores = timeframes.map((tf) => tradingEngine.analyzeTimeframe(marketData[tf], tf))
 
-    const tierResult = calculateAlertTier(timeframeScores, marketData)
+    const trend4h = tradingEngine.detectTrend(marketData["4h"])
+    const trend1h = tradingEngine.detectTrend(marketData["1h"])
+    const trend15m = tradingEngine.detectTrend(marketData["15m"])
+    const trend5m = tradingEngine.detectTrend(marketData["5m"])
+
+    console.log("[v0] CRON - Detected trends:", { trend4h, trend1h, trend15m, trend5m })
+
+    const tierResult = calculateConfirmationTier(timeframeScores, trend4h, trend1h, trend15m, trend5m)
     const currentTier = tierResult.tier
     const currentMode = tierResult.mode
 
@@ -184,77 +226,176 @@ export async function GET(request: NextRequest) {
     }
 
     if (shouldSendAlert) {
-      console.log("[v0] ✅ ALERT CONDITIONS MET! Preparing to send alert...")
-      console.log("[v0] Alert tier:", currentTier)
+      console.log("[v0] ======================================")
+      console.log("[v0] ALERT CONDITIONS MET!")
+      console.log("[v0] Current tier:", currentTier)
+      console.log("[v0] Last alert tier:", lastAlertTier)
+      console.log("[v0] ======================================")
 
       try {
-        if (currentTier === 3 && lastAlertTier !== 3) {
-          console.log("[v0] 📊 Sending TIER 3 alert (Building momentum)...")
-          await sendTelegramAlert({
-            type: "status",
-            message: `🔍 Setup Building (1/4)\n\n${tierResult.debugInfo.strongTimeframes} timeframes showing strength.\n\nMonitor for alignment...`,
-          })
-          console.log("[v0] ✅ TIER 3 alert sent successfully")
-        } else if (currentTier === 3 && lastAlertTier === 3) {
-          console.log("[v0] ℹ️ Tier 3 still active but alert already sent - skipping duplicate")
-        } else if (currentTier === 4) {
-          console.log("[v0] ⚡ Sending TIER 4 alert (Get Ready)...")
-          const trend4h = tradingEngine.detectTrend(marketData["4h"])
-          const trend1h = tradingEngine.detectTrend(marketData["1h"])
-          const trend15m = tradingEngine.detectTrend(marketData["15m"])
-          const trend5m = tradingEngine.detectTrend(marketData["5m"])
+        if (currentTier === 3 && lastAlertTier < 3) {
+          console.log("[v0] 📊 Sending TIER 3 alert...")
 
-          // Determine dominant direction (majority vote)
+          const setupDirection = tierResult.debugInfo.conservativeMode ? trend4h : trend1h
+          const modeLabel = currentMode === "conservative" ? "Conservative (4H+1H)" : "Aggressive (1H+15M+5M)"
+
+          if (currentMode === "aggressive") {
+            console.log("[v0] ⚡ TIER 3 AGGRESSIVE - Generating limit order signal")
+
+            const signal = await tradingEngine.generateSignal(marketData, currentPrice, true)
+
+            if (signal) {
+              console.log("[v0] ✅ Signal generated for tier 3 aggressive")
+              console.log("[v0] Signal direction:", signal.direction)
+              console.log("[v0] Entry:", signal.entryPrice, "Stop:", signal.stopLoss)
+
+              const lastSignalDirection = lastActiveSignal?.direction || null
+
+              if (lastSignalDirection && lastSignalDirection !== signal.direction) {
+                console.log("[v0] 🔄 DIRECTION CHANGE DETECTED!")
+                console.log("[v0] Previous:", lastSignalDirection, "→ New:", signal.direction)
+
+                await sendTelegramAlert({
+                  type: "status",
+                  message: `🔄 *DIRECTION CHANGE ALERT!*\n\nMarket has shifted from ${lastSignalDirection.toUpperCase()} to ${signal.direction.toUpperCase()}\n\nPrevious trade may be invalidated. Review your position!`,
+                })
+              }
+
+              const signalConfidence = {
+                score: Math.max(5, 8 - 2),
+                recommendation: "consider" as const,
+                factors: {
+                  timeframeAlignment: 0.8,
+                  trendStrength: 0.7,
+                  volatility: 0.7,
+                  sessionTiming: 0.8,
+                  marketContext: 0.8,
+                },
+              }
+
+              await sendTelegramAlert({
+                type: "limit_order",
+                signal,
+                confidence: signalConfidence,
+                timeframeScores,
+                price: currentPrice,
+              })
+
+              console.log("[v0] ✅ Tier 3 aggressive limit order alert sent successfully")
+              lastActiveSignal = signal
+              lastAlertTier = 3
+            } else {
+              console.log("[v0] ⚠️ Signal generation returned null for tier 3 aggressive")
+
+              await sendTelegramAlert({
+                type: "status",
+                message: `🔍 *Setup Building* (Tier 3 - Aggressive)\n\nMode: ${modeLabel}\nDirection: ${setupDirection.toUpperCase()}\n\n${tierResult.debugInfo.strongTimeframes} timeframes showing strength.\n\nMonitor for entry opportunity...`,
+              })
+              lastAlertTier = 3
+            }
+          } else {
+            // Conservative mode tier 3: Just notify about setup building
+            await sendTelegramAlert({
+              type: "status",
+              message: `🔍 *Setup Building* (Tier 3)\n\nMode: ${modeLabel}\nDirection: ${setupDirection.toUpperCase()}\n\n${tierResult.debugInfo.strongTimeframes} timeframes showing strength.\n\nMonitor for full alignment...`,
+            })
+            console.log("[v0] ✅ TIER 3 conservative alert sent successfully")
+            lastAlertTier = 3
+          }
+        } else if (currentTier === 4) {
+          console.log("[v0] ⚡ TIER 4 - Full alignment detected")
+
           const bullishCount = [trend4h, trend1h, trend15m, trend5m].filter((t) => t === "bullish").length
           const bearishCount = [trend4h, trend1h, trend15m, trend5m].filter((t) => t === "bearish").length
           const dominantDirection =
             bullishCount > bearishCount ? "bullish" : bearishCount > bullishCount ? "bearish" : "ranging"
 
-          console.log("[v0] Trend direction for alert:", dominantDirection)
+          console.log("[v0] Dominant direction:", dominantDirection)
 
-          await sendTelegramAlert({
-            type: "get_ready",
-            timeframeScores,
-            price: currentPrice,
-            trend: dominantDirection,
-          })
-          console.log("[v0] ✅ TIER 4 alert sent successfully")
+          const signal = await tradingEngine.generateSignal(marketData, currentPrice, currentMode === "aggressive")
+
+          if (signal) {
+            console.log("[v0] ✅ Signal generated for tier 4")
+            console.log("[v0] Signal direction:", signal.direction)
+            console.log("[v0] Entry:", signal.entryPrice, "Stop:", signal.stopLoss)
+
+            const lastSignalDirection = lastActiveSignal?.direction || null
+
+            if (lastSignalDirection && lastSignalDirection !== signal.direction) {
+              console.log("[v0] 🔄 DIRECTION CHANGE DETECTED!")
+              console.log("[v0] Previous:", lastSignalDirection, "→ New:", signal.direction)
+
+              await sendTelegramAlert({
+                type: "status",
+                message: `🔄 *DIRECTION CHANGE ALERT!*\n\nMarket has shifted from ${lastSignalDirection.toUpperCase()} to ${signal.direction.toUpperCase()}\n\nPrevious trade may be invalidated. Review your position!`,
+              })
+            }
+
+            const signalConfidence = {
+              score: 8,
+              recommendation: "take" as const,
+              factors: {
+                timeframeAlignment: 0.9,
+                trendStrength: 0.85,
+                volatility: 0.8,
+                sessionTiming: 0.85,
+                marketContext: 0.85,
+              },
+            }
+
+            await sendTelegramAlert({
+              type: "limit_order",
+              signal,
+              confidence: signalConfidence,
+              timeframeScores,
+              price: currentPrice,
+            })
+
+            console.log("[v0] ✅ Limit order alert sent successfully")
+            lastActiveSignal = signal
+            lastAlertTier = 4
+          } else {
+            console.log("[v0] ⚠️ Signal generation returned null")
+            console.log("[v0] Sending generic get_ready alert instead")
+
+            await sendTelegramAlert({
+              type: "get_ready",
+              timeframeScores,
+              price: currentPrice,
+              trend: dominantDirection,
+            })
+            lastAlertTier = 4
+          }
         }
-
-        lastAlertTier = currentTier
-        console.log("[v0] 📝 Alert tier updated to:", lastAlertTier)
       } catch (telegramError) {
-        console.error("[v0] ❌ Error sending Telegram alert:", telegramError)
-        return NextResponse.json(
-          {
-            success: false,
-            error: `Telegram error: ${telegramError instanceof Error ? telegramError.message : "Unknown"}`,
-            timestamp: new Date().toISOString(),
-          },
-          { status: 500 },
+        console.error("[v0] ❌ Telegram alert error:", telegramError)
+        console.error(
+          "[v0] Error details:",
+          telegramError instanceof Error ? telegramError.message : String(telegramError),
         )
       }
     } else {
-      console.log("[v0] ❌ NO ALERT SENT - Conditions not met:")
-      if (!marketStatus.isOpen) console.log("[v0]   - Market is CLOSED")
-      if (currentTier < 3) console.log("[v0]   - Tier below threshold (< 3)")
+      console.log("[v0] ❌ Alert conditions NOT met")
+      console.log("[v0] Market open:", marketStatus.isOpen, "| Tier:", currentTier, "| Required: 3+")
     }
 
-    // Reset if tier drops back to 0 or 1
     if (currentTier < 3 && lastAlertTier >= 3) {
       console.log("[v0] ⬇️ Tier dropped below 3 - resetting lastAlertTier")
       lastAlertTier = 0
     }
 
-    console.log("[v0] ==============================================")
-    console.log("[v0] 🤖 CRON JOB COMPLETED")
-    console.log("[v0] ==============================================")
+    console.log("[v0] ========================================")
+    console.log("[v0] CRON JOB COMPLETED SUCCESSFULLY")
+    console.log("[v0] Final state - Tier:", currentTier, "| Last alert:", lastAlertTier)
+    console.log("[v0] ========================================")
 
     return NextResponse.json({
       success: true,
       currentTier,
       currentMode,
       lastAlertTier,
+      hasActiveSignal: !!lastActiveSignal,
+      activeSignalDirection: lastActiveSignal?.direction || null,
       tierDebugInfo: tierResult.debugInfo,
       timeframeScores: timeframeScores.map((s) => ({
         timeframe: s.timeframe,
@@ -264,7 +405,11 @@ export async function GET(request: NextRequest) {
       timestamp: new Date().toISOString(),
     })
   } catch (error) {
-    console.error("[v0] Cron job error:", error)
+    console.error("[v0] ========================================")
+    console.error("[v0] CRON JOB FAILED WITH ERROR")
+    console.error("[v0] Error:", error)
+    console.error("[v0] Stack:", error instanceof Error ? error.stack : "No stack trace")
+    console.error("[v0] ========================================")
 
     await sendTelegramAlert({
       type: "error",
@@ -284,107 +429,5 @@ export async function GET(request: NextRequest) {
       },
       { status: 500 },
     )
-  }
-}
-
-function calculateAlertTier(
-  scores: { timeframe: Timeframe; score: number }[],
-  marketData: any,
-): { tier: number; mode: string; debugInfo: any } {
-  const score4h = scores.find((s) => s.timeframe === "4h")
-  const score1h = scores.find((s) => s.timeframe === "1h")
-  const score15m = scores.find((s) => s.timeframe === "15m")
-  const score5m = scores.find((s) => s.timeframe === "5m")
-
-  if (!score4h || !score1h || !score15m || !score5m) {
-    console.log("[v0] CRON TIER CALC - Missing score data")
-    return { tier: 0, mode: "none", debugInfo: { error: "Missing scores" } }
-  }
-
-  const trend4h = tradingEngine.detectTrend(marketData["4h"])
-  const trend1h = tradingEngine.detectTrend(marketData["1h"])
-  const trend15m = tradingEngine.detectTrend(marketData["15m"])
-  const trend5m = tradingEngine.detectTrend(marketData["5m"])
-
-  console.log("[v0] CRON TIER CALC - Trends:", { trend4h, trend1h, trend15m, trend5m })
-  console.log("[v0] CRON TIER CALC - Scores:", {
-    "4h": `${score4h.score}/${score4h.maxScore}`,
-    "1h": `${score1h.score}/${score1h.maxScore}`,
-    "15m": `${score15m.score}/${score15m.maxScore}`,
-    "5m": `${score5m.score}/${score5m.maxScore}`,
-  })
-
-  const conservativeMode = trend4h === trend1h && trend4h !== "ranging"
-  const aggressiveMode = trend1h === trend15m && trend1h === trend5m && trend1h !== "ranging"
-
-  console.log("[v0] CRON TIER CALC - Mode checks:", { conservativeMode, aggressiveMode })
-
-  const strongTimeframes = [score4h.score >= 3, score1h.score >= 2, score15m.score >= 2, score5m.score >= 2].filter(
-    Boolean,
-  ).length
-
-  console.log("[v0] CRON TIER CALC - Strong timeframes:", strongTimeframes)
-
-  // Tier 1: At least 2 strong timeframes
-  if (strongTimeframes >= 2) {
-    console.log("[v0] CRON TIER CALC - Tier 1 met (2+ strong timeframes)")
-
-    // Tier 2: Partial alignment forming
-    const partialAlignment =
-      (trend1h === trend15m && trend1h !== "ranging") ||
-      (trend15m === trend5m && trend15m !== "ranging") ||
-      (trend4h === trend1h && trend4h !== "ranging")
-
-    console.log("[v0] CRON TIER CALC - Partial alignment:", partialAlignment)
-    console.log("[v0] CRON TIER CALC - Alignment pairs:", {
-      "1h-15m": trend1h === trend15m && trend1h !== "ranging",
-      "15m-5m": trend15m === trend5m && trend15m !== "ranging",
-      "4h-1h": trend4h === trend1h && trend4h !== "ranging",
-    })
-
-    if (partialAlignment && strongTimeframes >= 2) {
-      console.log("[v0] CRON TIER CALC - Tier 2 met (partial alignment + strong timeframes)")
-
-      // Tier 3-4: Full alignment check
-      if (aggressiveMode || conservativeMode) {
-        let fullTier = 0
-        if (score4h.score >= 3) fullTier++
-        if (score1h.score >= 2) fullTier++
-        if (score15m.score >= 1) fullTier++
-        if (score5m.score >= 1) fullTier++
-
-        const mode = conservativeMode ? "conservative" : "aggressive"
-        console.log("[v0] CRON TIER CALC - Full alignment achieved!")
-        console.log("[v0] CRON TIER CALC - Mode:", mode)
-        console.log("[v0] CRON TIER CALC - Full tier:", fullTier >= 4 ? 4 : Math.max(3, fullTier))
-
-        return {
-          tier: fullTier >= 4 ? 4 : Math.max(3, fullTier),
-          mode,
-          debugInfo: { strongTimeframes, partialAlignment: true, fullAlignment: true },
-        }
-      }
-
-      console.log("[v0] CRON TIER CALC - Returning tier 2 (no full alignment yet)")
-      return {
-        tier: 2,
-        mode: "partial",
-        debugInfo: { strongTimeframes, partialAlignment: true, fullAlignment: false },
-      }
-    }
-
-    console.log("[v0] CRON TIER CALC - Returning tier 1 (no partial alignment yet)")
-    return {
-      tier: 1,
-      mode: "building",
-      debugInfo: { strongTimeframes, partialAlignment: false, fullAlignment: false },
-    }
-  }
-
-  console.log("[v0] CRON TIER CALC - Returning tier 0 (not enough strong timeframes)")
-  return {
-    tier: 0,
-    mode: "none",
-    debugInfo: { strongTimeframes, partialAlignment: false, fullAlignment: false },
   }
 }

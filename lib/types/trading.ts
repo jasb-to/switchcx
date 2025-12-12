@@ -72,7 +72,7 @@ export interface TradingSignal {
   tp2?: number
   chandelierStop: number
   status: SignalStatus
-  breakoutZone: BreakoutZone
+  breakoutZone?: BreakoutZone
   volatility: VolatilityMetrics
   timeframeScores: TimeframeScore[]
   session: TradingSession
@@ -83,6 +83,8 @@ export interface TradingSignal {
   metadata?: {
     rejectionReason?: string
     warning?: string
+    signalMode?: "conservative" | "aggressive"
+    breakoutType?: "horizontal" | "trendline"
   }
 }
 

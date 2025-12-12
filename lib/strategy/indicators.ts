@@ -206,7 +206,8 @@ export function calculateChandelierExit(
     }
 
     stopLong.push(highestHigh - atrMultiplier * atr[i])
-    stopShort.push(lowestLow + atrMultiplier * atr[i])
+    // This ensures SHORT stop loss is ABOVE the entry price (above recent highs)
+    stopShort.push(highestHigh + atrMultiplier * atr[i])
   }
 
   return { stopLong, stopShort }
