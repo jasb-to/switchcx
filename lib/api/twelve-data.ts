@@ -63,7 +63,9 @@ class TwelveDataClient {
     const keys = this.getApiKeys()
 
     if (this.exhaustedKeys.size >= keys.length) {
-      throw new Error(`All ${keys.length} API keys exhausted. Daily limit reached. Service resumes at midnight UTC.`)
+      throw new Error(
+        `Daily API limit reached. All ${keys.length} API keys exhausted. Service resumes at midnight UTC.`,
+      )
     }
 
     let attempts = 0
@@ -152,6 +154,12 @@ class TwelveDataClient {
       const interval = this.mapTimeframeToInterval(timeframe)
       const keyIndexBeforeRequest = this.currentKeyIndex
 
+      if (this.exhaustedKeys.size >= this.getApiKeys().length) {
+        throw new Error(
+          `Daily API limit reached. All ${this.getApiKeys().length} API keys exhausted (800 credits/day each). Service resumes at midnight UTC.`,
+        )
+      }
+
       const apiKey = this.getNextApiKey()
 
       const url = new URL(`${this.baseUrl}/time_series`)
@@ -186,11 +194,11 @@ class TwelveDataClient {
 
             if (this.exhaustedKeys.size >= this.getApiKeys().length) {
               throw new Error(
-                `All API keys exhausted. Daily limit reached (800 credits/day per key). Service resumes at midnight UTC.`,
+                `Daily API limit reached. All ${this.getApiKeys().length} API keys exhausted (800 credits/day each). Service resumes at midnight UTC.`,
               )
             }
 
-            console.log(`[v0] Retrying with next API key...`)
+            console.log(`[v0] Switching to next available API key...`)
             return this.fetchCandles(timeframe, outputSize)
           }
 
@@ -220,8 +228,13 @@ class TwelveDataClient {
         results[timeframe] = await this.fetchCandles(timeframe, 200)
         console.log("[v0] Successfully fetched", results[timeframe].length, "candles for", timeframe)
 
-        await new Promise((resolve) => setTimeout(resolve, 2000)) // Optimized delay between API calls
+        await new Promise((resolve) => setTimeout(resolve, 2000))
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        if (errorMessage.includes("Daily API limit") || errorMessage.includes("API keys exhausted")) {
+          console.error(`[v0] ❌ All API keys exhausted. Stopping data fetch.`)
+          throw error
+        }
         console.error(`Failed to fetch ${timeframe} data:`, error)
         results[timeframe] = []
       }
