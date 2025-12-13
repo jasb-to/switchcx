@@ -2,7 +2,7 @@ import type { Candle, Timeframe } from "../types/trading"
 import { TradingEngine } from "./engine"
 
 interface BacktestResult {
-  totalSignals: number
+  totalTrades: number // Renamed from totalSignals to match UI expectations
   wins: number
   losses: number
   winRate: number
@@ -11,6 +11,8 @@ interface BacktestResult {
   bestTrade: number
   worstTrade: number
   profitFactor: number
+  totalProfitLoss: number // Added P&L calculation
+  maxDrawdown: number // Added drawdown tracking
   signals: BacktestSignal[]
 }
 
@@ -47,7 +49,7 @@ export class BacktestAnalyzer {
         console.error(`[v0] ❌ BACKTEST FAILED: ${tf} data is missing or empty`)
         console.error(`[v0] marketData[${tf}]:`, marketData[tf])
         return {
-          totalSignals: 0,
+          totalTrades: 0, // Updated field name
           wins: 0,
           losses: 0,
           winRate: 0,
@@ -56,6 +58,8 @@ export class BacktestAnalyzer {
           bestTrade: 0,
           worstTrade: 0,
           profitFactor: 0,
+          totalProfitLoss: 0, // Added
+          maxDrawdown: 0, // Added
           signals: [],
         }
       }
@@ -195,7 +199,7 @@ export class BacktestAnalyzer {
     if (signals.length === 0) {
       console.log(`[v0] No ${mode} signals found in historical data`)
       return {
-        totalSignals: 0,
+        totalTrades: 0, // Updated field name
         wins: 0,
         losses: 0,
         winRate: 0,
@@ -204,6 +208,8 @@ export class BacktestAnalyzer {
         bestTrade: 0,
         worstTrade: 0,
         profitFactor: 0,
+        totalProfitLoss: 0, // Added
+        maxDrawdown: 0, // Added
         signals: [],
       }
     }
@@ -220,25 +226,47 @@ export class BacktestAnalyzer {
     const bestTrade = Math.max(...signals.map((s) => s.rMultiple))
     const worstTrade = Math.min(...signals.map((s) => s.rMultiple))
 
+    const dollarPerR = 10
+    const totalProfitLoss = totalRMultiples * dollarPerR
+
+    let runningPnL = 0
+    let peak = 0
+    let maxDrawdown = 0
+
+    signals.forEach((signal) => {
+      runningPnL += signal.rMultiple * dollarPerR
+      if (runningPnL > peak) {
+        peak = runningPnL
+      }
+      const drawdown = peak - runningPnL
+      if (drawdown > maxDrawdown) {
+        maxDrawdown = drawdown
+      }
+    })
+
     console.log(`[v0] ===== ${mode.toUpperCase()} MODE RESULTS =====`)
     console.log(`[v0] Total signals: ${signals.length}`)
     console.log(`[v0] Wins: ${wins} (${((wins / signals.length) * 100).toFixed(1)}%)`)
     console.log(`[v0] Losses: ${losses} (${((losses / signals.length) * 100).toFixed(1)}%)`)
     console.log(`[v0] Avg R-multiple: ${avgRMultiple.toFixed(2)}R`)
+    console.log(`[v0] Total P&L: $${totalProfitLoss.toFixed(2)}`) // Added logging
+    console.log(`[v0] Max Drawdown: $${maxDrawdown.toFixed(2)}`) // Added logging
     console.log(`[v0] Profit factor: ${profitFactor.toFixed(2)}`)
     console.log(`[v0] Best trade: ${bestTrade.toFixed(2)}R`)
     console.log(`[v0] Worst trade: ${worstTrade.toFixed(2)}R`)
 
     return {
-      totalSignals: signals.length,
+      totalTrades: signals.length, // Updated field name
       wins,
       losses,
-      winRate: (wins / signals.length) * 100,
+      winRate: wins / signals.length, // Return as decimal, not percentage
       totalRMultiples,
       avgRMultiple,
       bestTrade,
       worstTrade,
       profitFactor,
+      totalProfitLoss, // Added
+      maxDrawdown, // Added
       signals,
     }
   }

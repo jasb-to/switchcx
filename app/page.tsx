@@ -244,11 +244,11 @@ export default function HomePage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Winners:</span>
-                    <span className="font-medium text-green-500">{backtestResults.conservative.winners || 0}</span>
+                    <span className="font-medium text-green-500">{backtestResults.conservative.wins || 0}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Losers:</span>
-                    <span className="font-medium text-red-500">{backtestResults.conservative.losers || 0}</span>
+                    <span className="font-medium text-red-500">{backtestResults.conservative.losses || 0}</span>
                   </div>
                   <div className="flex justify-between border-t border-border pt-2 mt-2">
                     <span className="text-muted-foreground">Win Rate:</span>
@@ -301,11 +301,11 @@ export default function HomePage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Winners:</span>
-                    <span className="font-medium text-green-500">{backtestResults.aggressive.winners || 0}</span>
+                    <span className="font-medium text-green-500">{backtestResults.aggressive.wins || 0}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Losers:</span>
-                    <span className="font-medium text-red-500">{backtestResults.aggressive.losers || 0}</span>
+                    <span className="font-medium text-red-500">{backtestResults.aggressive.losses || 0}</span>
                   </div>
                   <div className="flex justify-between border-t border-border pt-2 mt-2">
                     <span className="text-muted-foreground">Win Rate:</span>
@@ -358,6 +358,78 @@ export default function HomePage() {
                 <span>Aggressive Score: {backtestResults.analysis.aggressiveScore}</span>
               </div>
             </div>
+
+            {(backtestResults.conservative.signals.length > 0 || backtestResults.aggressive.signals.length > 0) && (
+              <div className="space-y-4">
+                <h3 className="font-semibold text-lg">Trade History</h3>
+
+                {backtestResults.conservative.signals.length > 0 && (
+                  <div className="border border-border rounded-lg p-4">
+                    <h4 className="font-semibold mb-3 text-sm text-primary">Conservative Trades</h4>
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {backtestResults.conservative.signals.map((trade: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className={`flex items-center justify-between text-xs p-2 rounded border ${
+                            trade.outcome === "win"
+                              ? "border-green-500/20 bg-green-500/5"
+                              : "border-red-500/20 bg-red-500/5"
+                          }`}
+                        >
+                          <div className="flex-1">
+                            <div className="font-medium">
+                              {trade.direction === "bullish" ? "LONG" : "SHORT"} @ ${trade.entry.toFixed(2)}
+                            </div>
+                            <div className="text-muted-foreground">
+                              {new Date(trade.timestamp).toLocaleDateString()}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className={trade.outcome === "win" ? "text-green-500" : "text-red-500"}>
+                              {trade.rMultiple.toFixed(2)}R
+                            </div>
+                            <div className="text-muted-foreground text-[10px]">{trade.exitReason}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {backtestResults.aggressive.signals.length > 0 && (
+                  <div className="border border-border rounded-lg p-4">
+                    <h4 className="font-semibold mb-3 text-sm text-primary">Aggressive Trades</h4>
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {backtestResults.aggressive.signals.map((trade: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className={`flex items-center justify-between text-xs p-2 rounded border ${
+                            trade.outcome === "win"
+                              ? "border-green-500/20 bg-green-500/5"
+                              : "border-red-500/20 bg-red-500/5"
+                          }`}
+                        >
+                          <div className="flex-1">
+                            <div className="font-medium">
+                              {trade.direction === "bullish" ? "LONG" : "SHORT"} @ ${trade.entry.toFixed(2)}
+                            </div>
+                            <div className="text-muted-foreground">
+                              {new Date(trade.timestamp).toLocaleDateString()}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className={trade.outcome === "win" ? "text-green-500" : "text-red-500"}>
+                              {trade.rMultiple.toFixed(2)}R
+                            </div>
+                            <div className="text-muted-foreground text-[10px]">{trade.exitReason}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ML Note */}
             <div className="bg-muted/50 rounded-lg p-4 text-sm text-muted-foreground">

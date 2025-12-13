@@ -199,17 +199,16 @@ function detectThreeBlackCrows(candles: Candle[], prevCandles: Candle[]): Candle
   // Three black crows: 3 consecutive bearish candles, each closing lower
   const isPattern =
     m1.isBearish &&
-    m2.isBearish &&
+    m1.bodyPercent > 60 &&
+    m2.bodyPercent < 30 &&
     m3.isBearish &&
+    m3.bodyPercent > 60 &&
     c2.close < c1.close &&
     c3.close < c2.close &&
     c2.open < c1.open &&
     c2.open > c1.close &&
     c3.open < c2.open &&
-    c3.open > c2.close &&
-    m1.bodyPercent > 60 &&
-    m2.bodyPercent > 60 &&
-    m3.bodyPercent > 60
+    c3.open > c2.close
 
   if (!isPattern) return null
 
@@ -353,5 +352,18 @@ export function patternsConfirmDirection(
     confirmed,
     strength: avgStrength,
     supportingPatterns,
+  }
+}
+
+export class PatternRecognizer {
+  detectPatterns(candles: Candle[], lookback = 20): CandlePattern[] {
+    return detectCandlePatterns(candles, lookback)
+  }
+
+  confirmsDirection(
+    patterns: CandlePattern[],
+    direction: "bullish" | "bearish",
+  ): { confirmed: boolean; strength: number; supportingPatterns: CandlePattern[] } {
+    return patternsConfirmDirection(patterns, direction)
   }
 }

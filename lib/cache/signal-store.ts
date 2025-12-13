@@ -55,4 +55,5 @@ class SignalStore {
   }
 }
 
+export { SignalStore }
 export const signalStore = new SignalStore()

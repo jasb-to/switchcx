@@ -2,7 +2,7 @@
 
 import { type NextRequest, NextResponse } from "next/server"
 import { TradingEngine } from "@/lib/strategy/engine"
-import { TwelveDataClient } from "@/lib/api/twelve-data"
+import { twelveDataClient } from "@/lib/api/twelve-data"
 import { SignalStore } from "@/lib/cache/signal-store"
 import { sendTelegramAlert } from "@/lib/telegram/client"
 import { getGoldMarketStatus } from "@/lib/utils/market-hours"
@@ -73,8 +73,8 @@ export async function GET(request: NextRequest) {
           // Direction change detection logic
           try {
             const timeframes: Timeframe[] = ["4h", "1h", "15m", "5m"]
-            const marketData = await TwelveDataClient.fetchMultipleTimeframes(timeframes)
-            const currentPrice = await TwelveDataClient.getLatestPrice()
+            const marketData = await twelveDataClient.fetchMultipleTimeframes(timeframes)
+            const currentPrice = await twelveDataClient.getLatestPrice()
 
             const marketStatus = getGoldMarketStatus()
             console.log("[v0] Market status:", marketStatus.isOpen ? "OPEN" : "CLOSED")
@@ -280,8 +280,8 @@ export async function GET(request: NextRequest) {
 
         // Fetch multi-timeframe data
         const timeframes: Timeframe[] = ["4h", "1h", "15m", "5m"]
-        const marketData = await TwelveDataClient.fetchMultipleTimeframes(timeframes)
-        const currentPrice = await TwelveDataClient.getLatestPrice()
+        const marketData = await twelveDataClient.fetchMultipleTimeframes(timeframes)
+        const currentPrice = await twelveDataClient.getLatestPrice()
 
         console.log("[v0] Current XAUUSD price:", currentPrice)
 
