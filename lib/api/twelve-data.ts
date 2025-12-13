@@ -248,7 +248,7 @@ class TwelveDataClient {
           const exhaustedKeys = rateLimitCache.getExhaustedKeys()
 
           if (exhaustedKeys.size >= keys.length) {
-            console.error(`[v0] ❌ All ${keys.length} API keys exhausted. Stopping data fetch.`)
+            console.log(`[v0] ℹ️ All ${keys.length} API keys exhausted. Pausing data fetch until midnight UTC.`)
             throw error
           } else {
             console.warn(

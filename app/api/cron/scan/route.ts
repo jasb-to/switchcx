@@ -733,7 +733,15 @@ export async function GET(request: NextRequest) {
 
       return (await Promise.race([executionPromise, timeoutPromise])) as Response
     } catch (error: any) {
-      if (error.message?.includes("exhausted") || error.message?.includes("Daily limit")) {
+      const errorMessage = error?.message || error?.toString() || String(error)
+      const isRateLimitError =
+        errorMessage.includes("exhausted") ||
+        errorMessage.includes("Daily limit") ||
+        errorMessage.includes("API limit") ||
+        errorMessage.includes("rate limit") ||
+        errorMessage.includes("Rate limit")
+
+      if (isRateLimitError) {
         console.log("[v0] ⚠️ API limit reached, returning success to prevent cron failure notifications")
         return NextResponse.json({
           success: true,

@@ -81,6 +81,11 @@ export async function GET() {
         errorMessage.includes("Daily API limit") ||
         errorMessage.includes("API credits") ||
         errorMessage.includes("API keys exhausted")
+
+      if (!isRateLimitError) {
+        console.error("[v0] API call error:", errorMessage)
+      }
+
       apiError = isRateLimitError
         ? "⚠️ Daily API limit reached. Service resumes at midnight UTC. Active signals are still being monitored."
         : `API Error: ${errorMessage}`
