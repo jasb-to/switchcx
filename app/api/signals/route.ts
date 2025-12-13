@@ -76,9 +76,11 @@ export async function GET() {
       marketData = await twelveDataClient.fetchMultipleTimeframes(timeframes)
       currentPrice = await twelveDataClient.getLatestPrice()
     } catch (apiCallError) {
-      console.error("API call failed:", apiCallError)
       const errorMessage = apiCallError instanceof Error ? apiCallError.message : "API unavailable"
-      const isRateLimitError = errorMessage.includes("Daily API limit") || errorMessage.includes("API credits")
+      const isRateLimitError =
+        errorMessage.includes("Daily API limit") ||
+        errorMessage.includes("API credits") ||
+        errorMessage.includes("API keys exhausted")
       apiError = isRateLimitError
         ? "⚠️ Daily API limit reached. Service resumes at midnight UTC. Active signals are still being monitored."
         : `API Error: ${errorMessage}`
