@@ -163,9 +163,7 @@ export default function HomePage() {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-foreground">
-                <span className="gold-gradient bg-clip-text text-transparent">SwitchCX</span>
-              </h1>
+              <h1 className="text-2xl font-bold text-primary">SwitchCX</h1>
               <p className="text-sm text-muted-foreground">Gold Breakout Trading System</p>
             </div>
             <div className="flex gap-2">

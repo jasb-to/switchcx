@@ -1,7 +1,8 @@
-// Twelve Data API client with rate limiting and error handling
+// Twelve Data API client with rate limiting, error handling, and caching
 
 import type { Candle, Timeframe } from "../types/trading"
 import { rateLimitCache } from "../cache/rate-limit-cache"
+import { candleCache } from "../cache/candle-cache"
 
 interface TwelveDataCandle {
   datetime: string
@@ -124,6 +125,11 @@ class TwelveDataClient {
   }
 
   async fetchCandles(timeframe: Timeframe, outputSize = 200): Promise<Candle[]> {
+    const cached = candleCache.get(timeframe, outputSize)
+    if (cached) {
+      return cached
+    }
+
     if (rateLimitCache.isRateLimited()) {
       const resetTime = new Date(rateLimitCache.getResetTime()).toISOString()
       throw new Error(
@@ -198,7 +204,12 @@ class TwelveDataClient {
 
         console.log("[v0] Successfully fetched", data.values.length, "candles for", timeframe)
 
-        return data.values.map((candle) => this.normalizeCandle(candle)).sort((a, b) => a.timestamp - b.timestamp)
+        const candles = data.values
+          .map((candle) => this.normalizeCandle(candle))
+          .sort((a, b) => a.timestamp - b.timestamp)
+        candleCache.set(timeframe, outputSize, candles)
+
+        return candles
       } catch (error) {
         console.error(`[v0] Error fetching ${timeframe} candles:`, error)
         throw error
