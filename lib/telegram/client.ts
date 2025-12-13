@@ -329,7 +329,8 @@ Position: ${positionType} (${signal.direction.toUpperCase()})
 Entry: $${this.formatPrice(signal.entryPrice)}
 Current Price: $${this.formatPrice(currentPrice)}
 
-🚨 *Reason*: ${message}
+🚨 *Reversal Signals*:
+${message}
 
 ❌ *ACTION REQUIRED*
 Close your position immediately!
