@@ -3,7 +3,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { TradingEngine } from "@/lib/strategy/engine"
 import { twelveDataClient } from "@/lib/api/twelve-data"
-import { SignalStore } from "@/lib/cache/signal-store"
+import { signalStore } from "@/lib/cache/signal-store"
 import { sendTelegramAlert } from "@/lib/telegram/client"
 import { getGoldMarketStatus } from "@/lib/utils/market-hours"
 import { getMarketContext, shouldAvoidTrading } from "@/lib/market-context/intelligence"
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
       const executionPromise = (async () => {
         try {
           // Check for active signal
-          const activeSignal = SignalStore.getActiveSignal()
+          const activeSignal = signalStore.getActiveSignal()
 
           if (activeSignal) {
             console.log("[v0] Active signal exists:", activeSignal.id)
@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
                 )
               }
 
-              const storedDirection = SignalStore.getActiveSignalDirection()
+              const storedDirection = signalStore.getActiveSignalDirection()
 
               console.log("[v0] 🔍 DIRECTION CHECK:")
               console.log("[v0] Stored active signal:", activeSignal ? "YES" : "NO")
@@ -267,7 +267,7 @@ export async function GET(request: NextRequest) {
                     console.log("[v0] Trade closed in history:", trade.id, "PNL:", pnl.toFixed(2))
                   }
 
-                  SignalStore.invalidateSignal()
+                  signalStore.invalidateSignal()
                   lastAlertTier = 0
                 }
               } else {
@@ -353,8 +353,8 @@ export async function GET(request: NextRequest) {
           console.log("[v0] Should send alert:", shouldSendAlert)
           console.log("[v0] ==============================================")
 
-          const storedSignal = SignalStore.getActiveSignal()
-          const storedDirection = SignalStore.getActiveSignalDirection()
+          const storedSignal = signalStore.getActiveSignal()
+          const storedDirection = signalStore.getActiveSignalDirection()
 
           console.log("[v0] 🔍 DIRECTION CHECK:")
           console.log("[v0] Stored active signal:", storedSignal ? "YES" : "NO")
@@ -504,7 +504,7 @@ export async function GET(request: NextRequest) {
                   console.log("[v0] Trade closed in history:", trade.id, "PNL:", pnl.toFixed(2))
                 }
 
-                SignalStore.invalidateSignal()
+                signalStore.invalidateSignal()
                 lastAlertTier = 0
               }
             } else {
@@ -552,7 +552,7 @@ export async function GET(request: NextRequest) {
                     console.log("[v0] Signal direction:", signal.direction)
                     console.log("[v0] Entry:", signal.entryPrice, "Stop:", signal.stopLoss)
 
-                    const lastSignalDirection = SignalStore.getActiveSignalDirection()
+                    const lastSignalDirection = signalStore.getActiveSignalDirection()
 
                     if (lastSignalDirection && lastSignalDirection !== signal.direction) {
                       console.log("[v0] 🔄 DIRECTION CHANGE DETECTED!")
@@ -585,7 +585,7 @@ export async function GET(request: NextRequest) {
                     })
 
                     console.log("[v0] ✅ Tier 3 aggressive limit order alert sent successfully")
-                    SignalStore.setActiveSignal(signal)
+                    signalStore.setActiveSignal(signal)
                     lastAlertTier = 3
                   } else {
                     console.log("[v0] ⚠️ Signal generation returned null for tier 3 aggressive")
@@ -626,7 +626,7 @@ export async function GET(request: NextRequest) {
                   console.log("[v0] Signal direction:", signal.direction)
                   console.log("[v0] Entry:", signal.entryPrice, "Stop:", signal.stopLoss)
 
-                  const lastSignalDirection = SignalStore.getActiveSignalDirection()
+                  const lastSignalDirection = signalStore.getActiveSignalDirection()
 
                   if (lastSignalDirection && lastSignalDirection !== signal.direction) {
                     console.log("[v0] 🔄 DIRECTION CHANGE DETECTED!")
@@ -659,7 +659,7 @@ export async function GET(request: NextRequest) {
                   })
 
                   console.log("[v0] ✅ Limit order alert sent successfully")
-                  SignalStore.setActiveSignal(signal)
+                  signalStore.setActiveSignal(signal)
                   lastAlertTier = 4
                 } else {
                   console.log("[v0] ⚠️ Signal generation returned null")
@@ -701,8 +701,8 @@ export async function GET(request: NextRequest) {
             currentTier,
             currentMode,
             lastAlertTier,
-            hasActiveSignal: SignalStore.hasActiveSignal(),
-            activeSignalDirection: SignalStore.getActiveSignalDirection(),
+            hasActiveSignal: signalStore.hasActiveSignal(),
+            activeSignalDirection: signalStore.getActiveSignalDirection(),
             tierDebugInfo: tierResult.debugInfo,
             timeframeScores: timeframeScores.map((s) => ({
               timeframe: s.timeframe,
