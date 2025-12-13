@@ -140,89 +140,99 @@ class TwelveDataClient {
     return this.enqueueRequest(async () => {
       const interval = this.mapTimeframeToInterval(timeframe)
       const keys = this.getApiKeys()
-
       const exhaustedKeys = rateLimitCache.getExhaustedKeys()
 
-      let apiKey: string | null = null
-      let keyIndex = -1
-
-      for (let i = 0; i < keys.length; i++) {
-        if (!exhaustedKeys.has(i)) {
-          apiKey = keys[i]
-          keyIndex = i
-          break
-        }
-      }
-
-      if (!apiKey) {
-        throw new Error(
-          `Daily API limit reached. All ${keys.length} API keys exhausted. Service resumes at midnight UTC.`,
-        )
-      }
-
-      const url = new URL(`${this.baseUrl}/time_series`)
-      url.searchParams.append("symbol", this.symbol)
-      url.searchParams.append("interval", interval)
-      url.searchParams.append("outputsize", outputSize.toString())
-      url.searchParams.append("apikey", apiKey)
-      url.searchParams.append("format", "JSON")
-
-      console.log("[v0] Fetching", outputSize, "candles for", timeframe)
-
-      try {
-        const response = await fetch(url.toString(), {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-          },
-          next: { revalidate: 600 },
-        })
-
-        if (!response.ok) {
-          throw new Error(`Twelve Data API error: ${response.status} ${response.statusText}`)
+      for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+        // Skip exhausted keys
+        if (exhaustedKeys.has(keyIndex)) {
+          console.log(`[v0] ⏭️ Skipping exhausted key ${keyIndex + 1}`)
+          continue
         }
 
-        const data: TwelveDataResponse = await response.json()
+        const apiKey = keys[keyIndex]
+        const url = new URL(`${this.baseUrl}/time_series`)
+        url.searchParams.append("symbol", this.symbol)
+        url.searchParams.append("interval", interval)
+        url.searchParams.append("outputsize", outputSize.toString())
+        url.searchParams.append("apikey", apiKey)
+        url.searchParams.append("format", "JSON")
 
-        if (data.status === "error") {
-          const errorData = data as any
-          if (errorData.code === 429) {
-            console.warn(`[v0] API key ${keyIndex + 1} exhausted. Marking as unavailable.`)
-            rateLimitCache.markKeyExhausted(keyIndex, keys.length)
+        console.log(`[v0] Fetching ${outputSize} candles for ${timeframe} (using key ${keyIndex + 1}/${keys.length})`)
 
-            throw new Error(
-              `Daily API limit reached. ${rateLimitCache.getExhaustedKeys().size}/${keys.length} keys exhausted. Service resumes at midnight UTC.`,
-            )
+        try {
+          const response = await fetch(url.toString(), {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+            },
+            next: { revalidate: 600 },
+          })
+
+          if (!response.ok) {
+            throw new Error(`Twelve Data API error: ${response.status} ${response.statusText}`)
           }
 
-          throw new Error(`Twelve Data API error: ${JSON.stringify(data)}`)
+          const data: TwelveDataResponse = await response.json()
+
+          if (data.status === "error") {
+            const errorData = data as any
+            if (errorData.code === 429) {
+              console.warn(`[v0] 🔑 API key ${keyIndex + 1} exhausted. Marking as unavailable.`)
+              rateLimitCache.markKeyExhausted(keyIndex, keys.length)
+
+              // Check if this was the last key
+              if (exhaustedKeys.size + 1 >= keys.length) {
+                throw new Error(
+                  `Daily API limit reached. All ${keys.length} API keys exhausted. Service resumes at midnight UTC.`,
+                )
+              }
+
+              // Try next key
+              console.log(`[v0] 🔄 Trying next available key...`)
+              continue
+            }
+
+            throw new Error(`Twelve Data API error: ${JSON.stringify(data)}`)
+          }
+
+          if (!data.values || data.values.length === 0) {
+            throw new Error("No data returned from Twelve Data API")
+          }
+
+          console.log("[v0] ✅ Successfully fetched", data.values.length, "candles for", timeframe)
+
+          const candles = data.values
+            .map((candle) => this.normalizeCandle(candle))
+            .sort((a, b) => a.timestamp - b.timestamp)
+          candleCache.set(timeframe, outputSize, candles)
+
+          return candles
+        } catch (error) {
+          // If this is a rate limit error, it's already handled above
+          if (error instanceof Error && error.message.includes("Daily API limit")) {
+            // If all keys are exhausted, rethrow
+            if (rateLimitCache.getExhaustedKeys().size >= keys.length) {
+              throw error
+            }
+            // Otherwise continue to next key
+            continue
+          }
+
+          // For other errors, throw immediately
+          console.error(`[v0] ❌ Error fetching ${timeframe} candles:`, error)
+          throw error
         }
-
-        if (!data.values || data.values.length === 0) {
-          throw new Error("No data returned from Twelve Data API")
-        }
-
-        console.log("[v0] Successfully fetched", data.values.length, "candles for", timeframe)
-
-        const candles = data.values
-          .map((candle) => this.normalizeCandle(candle))
-          .sort((a, b) => a.timestamp - b.timestamp)
-        candleCache.set(timeframe, outputSize, candles)
-
-        return candles
-      } catch (error) {
-        console.error(`[v0] Error fetching ${timeframe} candles:`, error)
-        throw error
       }
+
+      throw new Error(
+        `Daily API limit reached. All ${keys.length} API keys exhausted. Service resumes at midnight UTC.`,
+      )
     })
   }
 
   async fetchMultipleTimeframes(timeframes: Timeframe[]): Promise<Record<Timeframe, Candle[]>> {
-    if (rateLimitCache.isRateLimited()) {
-      throw new Error(`Daily API limit reached. All API keys exhausted. Service resumes at midnight UTC.`)
-    }
-
     const results: Record<string, Candle[]> = {}
+    const keys = this.getApiKeys()
 
     for (const timeframe of timeframes) {
       try {
@@ -233,10 +243,21 @@ class TwelveDataClient {
         await new Promise((resolve) => setTimeout(resolve, 2000))
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
+
         if (errorMessage.includes("Daily API limit") || errorMessage.includes("keys exhausted")) {
-          console.error(`[v0] ❌ All API keys exhausted. Stopping data fetch.`)
-          throw error
+          const exhaustedKeys = rateLimitCache.getExhaustedKeys()
+
+          if (exhaustedKeys.size >= keys.length) {
+            console.error(`[v0] ❌ All ${keys.length} API keys exhausted. Stopping data fetch.`)
+            throw error
+          } else {
+            console.warn(
+              `[v0] ⚠️ Request failed but ${keys.length - exhaustedKeys.size}/${keys.length} keys still available`,
+            )
+            throw error
+          }
         }
+
         console.error(`Failed to fetch ${timeframe} data:`, error)
         throw error
       }
@@ -285,7 +306,7 @@ class TwelveDataClient {
         const data = await response.json()
 
         if (data.status === "error" && data.code === 429) {
-          console.warn(`[v0] API key ${keyIndex + 1} exhausted. Marking as unavailable.`)
+          console.warn(`[v0] 🔑 API key ${keyIndex + 1} exhausted. Marking as unavailable.`)
           rateLimitCache.markKeyExhausted(keyIndex, keys.length)
 
           throw new Error(`Daily API limit reached. Service resumes at midnight UTC.`)

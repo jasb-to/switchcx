@@ -62,54 +62,321 @@ export async function GET(request: NextRequest) {
       )
 
       const executionPromise = (async () => {
-        // Check for active signal
-        const activeSignal = SignalStore.getActiveSignal()
+        try {
+          // Check for active signal
+          const activeSignal = SignalStore.getActiveSignal()
 
-        if (activeSignal) {
-          console.log("[v0] Active signal exists:", activeSignal.id)
-          console.log("[v0] Signal direction:", activeSignal.direction)
-          console.log("[v0] Checking for direction changes...")
+          if (activeSignal) {
+            console.log("[v0] Active signal exists:", activeSignal.id)
+            console.log("[v0] Signal direction:", activeSignal.direction)
+            console.log("[v0] Checking for direction changes...")
 
-          // Direction change detection logic
-          try {
-            const timeframes: Timeframe[] = ["4h", "1h", "15m", "5m"]
-            const marketData = await twelveDataClient.fetchMultipleTimeframes(timeframes)
-            const currentPrice = await twelveDataClient.getLatestPrice()
+            // Direction change detection logic
+            try {
+              const timeframes: Timeframe[] = ["4h", "1h", "15m", "5m"]
+              const marketData = await twelveDataClient.fetchMultipleTimeframes(timeframes)
+              const currentPrice = await twelveDataClient.getLatestPrice()
 
-            const marketStatus = getGoldMarketStatus()
-            console.log("[v0] Market status:", marketStatus.isOpen ? "OPEN" : "CLOSED")
+              const marketStatus = getGoldMarketStatus()
+              console.log("[v0] Market status:", marketStatus.isOpen ? "OPEN" : "CLOSED")
 
-            const marketContext = await getMarketContext()
-            const tradingRestriction = shouldAvoidTrading(marketContext)
+              const marketContext = await getMarketContext()
+              const tradingRestriction = shouldAvoidTrading(marketContext)
 
-            if (tradingRestriction.avoid) {
-              console.log("[v0] 🚫 Trading blocked:", tradingRestriction.reason)
+              if (tradingRestriction.avoid) {
+                console.log("[v0] 🚫 Trading blocked:", tradingRestriction.reason)
 
-              // Send notification about trading restriction
-              if (marketStatus.isOpen) {
-                await sendTelegramAlert({
-                  type: "status",
-                  message: `⚠️ Trading suspended: ${tradingRestriction.reason}\n\nThe system will resume normal operation once the event passes.`,
+                // Send notification about trading restriction
+                if (marketStatus.isOpen) {
+                  await sendTelegramAlert({
+                    type: "status",
+                    message: `⚠️ Trading suspended: ${tradingRestriction.reason}\n\nThe system will resume normal operation once the event passes.`,
+                  })
+                }
+
+                return NextResponse.json({
+                  success: true,
+                  blocked: true,
+                  reason: tradingRestriction.reason,
+                  timestamp: new Date().toISOString(),
                 })
               }
 
-              return NextResponse.json({
-                success: true,
-                blocked: true,
-                reason: tradingRestriction.reason,
-                timestamp: new Date().toISOString(),
+              const trend4h = TradingEngine.detectTrend(marketData["4h"])
+              const trend1h = TradingEngine.detectTrend(marketData["1h"])
+              const trend15m = TradingEngine.detectTrend(marketData["15m"])
+              const trend5m = TradingEngine.detectTrend(marketData["5m"])
+
+              const patternRecognizer = new PatternRecognizer()
+              const detected1hPatterns = patternRecognizer.detectPatterns(marketData["1h"])
+
+              const opposingDirection = activeSignal.direction === "bullish" ? "bearish" : "bullish"
+              const reversalPatterns = detected1hPatterns.filter(
+                (p) =>
+                  p.type === opposingDirection &&
+                  (p.name.includes("Engulfing") ||
+                    p.name.includes("Shooting Star") ||
+                    p.name.includes("Hammer") ||
+                    p.name.includes("Evening Star") ||
+                    p.name.includes("Morning Star")),
+              )
+
+              const strongReversalPattern = reversalPatterns.find((p) => p.strength >= 70)
+
+              console.log("[v0] CRON - Detected trends:", { trend4h, trend1h, trend15m, trend5m })
+              console.log("[v0] CRON - Reversal patterns detected:", reversalPatterns.length)
+              if (strongReversalPattern) {
+                console.log(
+                  "[v0] CRON - Strong reversal pattern:",
+                  strongReversalPattern.name,
+                  strongReversalPattern.strength + "%",
+                )
+              }
+
+              const storedDirection = SignalStore.getActiveSignalDirection()
+
+              console.log("[v0] 🔍 DIRECTION CHECK:")
+              console.log("[v0] Stored active signal:", activeSignal ? "YES" : "NO")
+              console.log("[v0] Stored direction:", storedDirection)
+              console.log("[v0] Current trends - 4H:", trend4h, "1H:", trend1h, "15M:", trend15m, "5M:", trend5m)
+
+              const timeSinceEmergencyExit = Date.now() - lastEmergencyExitTimestamp
+              const inEmergencyCooldown =
+                timeSinceEmergencyExit > 0 && timeSinceEmergencyExit < EMERGENCY_EXIT_COOLDOWN_MS
+
+              if (inEmergencyCooldown) {
+                const remainingMinutes = Math.ceil((EMERGENCY_EXIT_COOLDOWN_MS - timeSinceEmergencyExit) / (60 * 1000))
+                console.log("[v0] ⏸️  In emergency exit cooldown -", remainingMinutes, "minutes remaining")
+              }
+
+              let reversalReason = ""
+              const reasonDetails: string[] = []
+
+              const riskAmount = Math.abs(activeSignal.entryPrice - activeSignal.stopLoss)
+              const currentRisk =
+                activeSignal.direction === "bullish"
+                  ? activeSignal.entryPrice - currentPrice
+                  : currentPrice - activeSignal.entryPrice
+
+              const riskPercentage = (currentRisk / riskAmount) * 100
+
+              const priceNearStop = riskPercentage >= 70
+              const priceHitStop =
+                (activeSignal.direction === "bullish" && currentPrice <= activeSignal.stopLoss) ||
+                (activeSignal.direction === "bearish" && currentPrice >= activeSignal.stopLoss)
+
+              const trend4hReversed =
+                (activeSignal.direction === "bullish" && trend4h === "bearish") ||
+                (activeSignal.direction === "bearish" && trend4h === "bullish")
+
+              const trend1hReversed =
+                (activeSignal.direction === "bullish" && trend1h === "bearish") ||
+                (activeSignal.direction === "bearish" && trend1h === "bullish")
+
+              const bothPrimaryTimeframesReversed = trend4hReversed && trend1hReversed
+
+              const shouldAlertReversal =
+                priceHitStop || priceNearStop || bothPrimaryTimeframesReversed || !!strongReversalPattern
+
+              console.log("[v0] 🔍 REVERSAL CONDITIONS:")
+              console.log("[v0] Price hit stop:", priceHitStop)
+              console.log("[v0] Price near stop (70%+):", priceNearStop, "Risk %:", riskPercentage.toFixed(1))
+              console.log(
+                "[v0] 4H reversed:",
+                trend4hReversed,
+                "(Current:",
+                trend4h,
+                "vs Signal:",
+                activeSignal.direction + ")",
+              )
+              console.log(
+                "[v0] 1H reversed:",
+                trend1hReversed,
+                "(Current:",
+                trend1h,
+                "vs Signal:",
+                activeSignal.direction + ")",
+              )
+              console.log("[v0] BOTH 4H + 1H reversed:", bothPrimaryTimeframesReversed)
+              console.log("[v0] Strong reversal pattern:", !!strongReversalPattern)
+              console.log("[v0] Should alert:", shouldAlertReversal)
+
+              if (shouldAlertReversal) {
+                console.log("[v0] ⚠️ REVERSAL DETECTED IN CRON!")
+
+                if (marketStatus.isOpen) {
+                  if (priceHitStop) {
+                    reasonDetails.push(
+                      `🛑 STOP LOSS HIT! Current: $${currentPrice.toFixed(2)}, Stop: $${activeSignal.stopLoss.toFixed(2)}`,
+                    )
+                  }
+
+                  if (priceNearStop) {
+                    reasonDetails.push(
+                      `⚠️ DANGER ZONE! Price is ${riskPercentage.toFixed(0)}% towards stop loss ($${activeSignal.stopLoss.toFixed(2)})`,
+                    )
+                  }
+
+                  if (bothPrimaryTimeframesReversed) {
+                    reasonDetails.push(
+                      `📉 MAJOR TREND REVERSAL! Both 4H and 1H now ${trend4h.toUpperCase()} (was ${activeSignal.direction})`,
+                    )
+                  }
+
+                  if (strongReversalPattern) {
+                    reasonDetails.push(
+                      `✨ ${strongReversalPattern.name.toUpperCase()} pattern (${strongReversalPattern.strength}% strength) signals ${opposingDirection} reversal`,
+                    )
+                  }
+
+                  reversalReason = reasonDetails.join("\n\n")
+
+                  await sendTelegramAlert({
+                    type: "reversal",
+                    signal: activeSignal,
+                    message: reversalReason,
+                    price: currentPrice,
+                  })
+
+                  console.log("[v0] ✅ EMERGENCY EXIT alert sent from cron")
+
+                  lastEmergencyExitTimestamp = Date.now()
+                  console.log("[v0] 🚫 Emergency exit cooldown started - No new signals for 15 minutes")
+
+                  // Close trade in history
+                  const openTrades = tradeHistoryManager.getAllTrades().filter((t) => t.status === "open")
+                  if (openTrades.length > 0) {
+                    const trade = openTrades[openTrades.length - 1]
+                    const pnl =
+                      activeSignal.direction === "bullish"
+                        ? currentPrice - trade.entryPrice
+                        : trade.entryPrice - currentPrice
+                    const pnlPercent = (pnl / trade.entryPrice) * 100
+                    const rMultiple = pnl / riskAmount
+
+                    tradeHistoryManager.updateTrade(trade.id, {
+                      exitPrice: currentPrice,
+                      exitTime: Date.now(),
+                      pnl,
+                      pnlPercent,
+                      rMultiple,
+                      status: "closed",
+                      exitReason: reversalReason,
+                      duration: Date.now() - trade.entryTime,
+                    })
+                    console.log("[v0] Trade closed in history:", trade.id, "PNL:", pnl.toFixed(2))
+                  }
+
+                  SignalStore.invalidateSignal()
+                  lastAlertTier = 0
+                }
+              } else {
+                console.log("[v0] ✅ Active signal still valid - No reversal detected")
+              }
+            } catch (error) {
+              if (error instanceof Error && error.message.includes("Daily API limit reached")) {
+                console.log("[v0] ⚠️ API limit reached during direction check - skipping until midnight UTC")
+                return NextResponse.json({
+                  success: true,
+                  rateLimited: true,
+                  message: "API limit reached. Service resumes at midnight UTC.",
+                  timestamp: new Date().toISOString(),
+                })
+              }
+              console.error("[v0] Error checking direction changes:", error)
+              // Continue execution even if this fails
+            }
+          }
+
+          // Fetch multi-timeframe data
+          const timeframes: Timeframe[] = ["4h", "1h", "15m", "5m"]
+          const marketData = await twelveDataClient.fetchMultipleTimeframes(timeframes)
+          const currentPrice = await twelveDataClient.getLatestPrice()
+
+          console.log("[v0] Current XAUUSD price:", currentPrice)
+
+          // Analyze timeframes
+          const timeframeScores = timeframes.map((tf) => TradingEngine.analyzeTimeframe(marketData[tf], tf))
+
+          const trend4h = TradingEngine.detectTrend(marketData["4h"])
+          const trend1h = TradingEngine.detectTrend(marketData["1h"])
+          const trend15m = TradingEngine.detectTrend(marketData["15m"])
+          const trend5m = TradingEngine.detectTrend(marketData["5m"])
+
+          console.log("[v0] CRON - Detected trends:", { trend4h, trend1h, trend15m, trend5m })
+
+          const tierResult = calculateConfirmationTier(timeframeScores, trend4h, trend1h, trend15m, trend5m)
+          const currentTier = tierResult.tier
+          const currentMode = tierResult.mode
+
+          console.log("[v0] ==============================================")
+          console.log("[v0] TIER CALCULATION RESULT:")
+          console.log("[v0] Current tier:", currentTier)
+          console.log("[v0] Current mode:", currentMode)
+          console.log("[v0] Last alert tier:", lastAlertTier)
+          console.log("[v0] Debug info:", JSON.stringify(tierResult.debugInfo, null, 2))
+          console.log("[v0] ==============================================")
+
+          console.log("[v0] Scores:", timeframeScores.map((s) => `${s.timeframe}: ${s.score}/${s.maxScore}`).join(", "))
+
+          const marketStatus = getGoldMarketStatus()
+          console.log("[v0] Market status:", marketStatus.isOpen ? "OPEN" : "CLOSED")
+
+          const marketContext = await getMarketContext()
+          const tradingRestriction = shouldAvoidTrading(marketContext)
+
+          if (tradingRestriction.avoid) {
+            console.log("[v0] 🚫 Trading blocked:", tradingRestriction.reason)
+
+            // Send notification about trading restriction
+            if (marketStatus.isOpen) {
+              await sendTelegramAlert({
+                type: "status",
+                message: `⚠️ Trading suspended: ${tradingRestriction.reason}\n\nThe system will resume normal operation once the event passes.`,
               })
             }
 
-            const trend4h = TradingEngine.detectTrend(marketData["4h"])
-            const trend1h = TradingEngine.detectTrend(marketData["1h"])
-            const trend15m = TradingEngine.detectTrend(marketData["15m"])
-            const trend5m = TradingEngine.detectTrend(marketData["5m"])
+            return NextResponse.json({
+              success: true,
+              blocked: true,
+              reason: tradingRestriction.reason,
+              timestamp: new Date().toISOString(),
+            })
+          }
 
+          const shouldSendAlert = marketStatus.isOpen && currentTier >= 3
+
+          console.log("[v0] ==============================================")
+          console.log("[v0] ALERT CHECK:")
+          console.log("[v0] Market open:", marketStatus.isOpen)
+          console.log("[v0] Current tier >= 3:", currentTier >= 3)
+          console.log("[v0] Should send alert:", shouldSendAlert)
+          console.log("[v0] ==============================================")
+
+          const storedSignal = SignalStore.getActiveSignal()
+          const storedDirection = SignalStore.getActiveSignalDirection()
+
+          console.log("[v0] 🔍 DIRECTION CHECK:")
+          console.log("[v0] Stored active signal:", storedSignal ? "YES" : "NO")
+          console.log("[v0] Stored direction:", storedDirection)
+          console.log("[v0] Current trends - 4H:", trend4h, "1H:", trend1h, "15M:", trend15m, "5M:", trend5m)
+
+          const timeSinceEmergencyExit = Date.now() - lastEmergencyExitTimestamp
+          const inEmergencyCooldown = timeSinceEmergencyExit > 0 && timeSinceEmergencyExit < EMERGENCY_EXIT_COOLDOWN_MS
+
+          if (inEmergencyCooldown) {
+            const remainingMinutes = Math.ceil((EMERGENCY_EXIT_COOLDOWN_MS - timeSinceEmergencyExit) / (60 * 1000))
+            console.log("[v0] ⏸️  In emergency exit cooldown -", remainingMinutes, "minutes remaining")
+          }
+
+          let reversalReason = ""
+          const reasonDetails: string[] = []
+
+          if (storedSignal) {
             const patternRecognizer = new PatternRecognizer()
             const detected1hPatterns = patternRecognizer.detectPatterns(marketData["1h"])
 
-            const opposingDirection = activeSignal.direction === "bullish" ? "bearish" : "bullish"
+            const opposingDirection = storedSignal.direction === "bullish" ? "bearish" : "bullish"
             const reversalPatterns = detected1hPatterns.filter(
               (p) =>
                 p.type === opposingDirection &&
@@ -122,55 +389,26 @@ export async function GET(request: NextRequest) {
 
             const strongReversalPattern = reversalPatterns.find((p) => p.strength >= 70)
 
-            console.log("[v0] CRON - Detected trends:", { trend4h, trend1h, trend15m, trend5m })
-            console.log("[v0] CRON - Reversal patterns detected:", reversalPatterns.length)
-            if (strongReversalPattern) {
-              console.log(
-                "[v0] CRON - Strong reversal pattern:",
-                strongReversalPattern.name,
-                strongReversalPattern.strength + "%",
-              )
-            }
-
-            const storedDirection = SignalStore.getActiveSignalDirection()
-
-            console.log("[v0] 🔍 DIRECTION CHECK:")
-            console.log("[v0] Stored active signal:", activeSignal ? "YES" : "NO")
-            console.log("[v0] Stored direction:", storedDirection)
-            console.log("[v0] Current trends - 4H:", trend4h, "1H:", trend1h, "15M:", trend15m, "5M:", trend5m)
-
-            const timeSinceEmergencyExit = Date.now() - lastEmergencyExitTimestamp
-            const inEmergencyCooldown =
-              timeSinceEmergencyExit > 0 && timeSinceEmergencyExit < EMERGENCY_EXIT_COOLDOWN_MS
-
-            if (inEmergencyCooldown) {
-              const remainingMinutes = Math.ceil((EMERGENCY_EXIT_COOLDOWN_MS - timeSinceEmergencyExit) / (60 * 1000))
-              console.log("[v0] ⏸️  In emergency exit cooldown -", remainingMinutes, "minutes remaining")
-            }
-
-            let reversalReason = ""
-            const reasonDetails: string[] = []
-
-            const riskAmount = Math.abs(activeSignal.entryPrice - activeSignal.stopLoss)
+            const riskAmount = Math.abs(storedSignal.entryPrice - storedSignal.stopLoss)
             const currentRisk =
-              activeSignal.direction === "bullish"
-                ? activeSignal.entryPrice - currentPrice
-                : currentPrice - activeSignal.entryPrice
+              storedSignal.direction === "bullish"
+                ? storedSignal.entryPrice - currentPrice
+                : currentPrice - storedSignal.entryPrice
 
             const riskPercentage = (currentRisk / riskAmount) * 100
 
             const priceNearStop = riskPercentage >= 70
             const priceHitStop =
-              (activeSignal.direction === "bullish" && currentPrice <= activeSignal.stopLoss) ||
-              (activeSignal.direction === "bearish" && currentPrice >= activeSignal.stopLoss)
+              (storedSignal.direction === "bullish" && currentPrice <= storedSignal.stopLoss) ||
+              (storedSignal.direction === "bearish" && currentPrice >= storedSignal.stopLoss)
 
             const trend4hReversed =
-              (activeSignal.direction === "bullish" && trend4h === "bearish") ||
-              (activeSignal.direction === "bearish" && trend4h === "bullish")
+              (storedSignal.direction === "bullish" && trend4h === "bearish") ||
+              (storedSignal.direction === "bearish" && trend4h === "bullish")
 
             const trend1hReversed =
-              (activeSignal.direction === "bullish" && trend1h === "bearish") ||
-              (activeSignal.direction === "bearish" && trend1h === "bullish")
+              (storedSignal.direction === "bullish" && trend1h === "bearish") ||
+              (storedSignal.direction === "bearish" && trend1h === "bullish")
 
             const bothPrimaryTimeframesReversed = trend4hReversed && trend1hReversed
 
@@ -186,7 +424,7 @@ export async function GET(request: NextRequest) {
               "(Current:",
               trend4h,
               "vs Signal:",
-              activeSignal.direction + ")",
+              storedSignal.direction + ")",
             )
             console.log(
               "[v0] 1H reversed:",
@@ -194,7 +432,7 @@ export async function GET(request: NextRequest) {
               "(Current:",
               trend1h,
               "vs Signal:",
-              activeSignal.direction + ")",
+              storedSignal.direction + ")",
             )
             console.log("[v0] BOTH 4H + 1H reversed:", bothPrimaryTimeframesReversed)
             console.log("[v0] Strong reversal pattern:", !!strongReversalPattern)
@@ -206,19 +444,19 @@ export async function GET(request: NextRequest) {
               if (marketStatus.isOpen) {
                 if (priceHitStop) {
                   reasonDetails.push(
-                    `🛑 STOP LOSS HIT! Current: $${currentPrice.toFixed(2)}, Stop: $${activeSignal.stopLoss.toFixed(2)}`,
+                    `🛑 STOP LOSS HIT! Current: $${currentPrice.toFixed(2)}, Stop: $${storedSignal.stopLoss.toFixed(2)}`,
                   )
                 }
 
                 if (priceNearStop) {
                   reasonDetails.push(
-                    `⚠️ DANGER ZONE! Price is ${riskPercentage.toFixed(0)}% towards stop loss ($${activeSignal.stopLoss.toFixed(2)})`,
+                    `⚠️ DANGER ZONE! Price is ${riskPercentage.toFixed(0)}% towards stop loss ($${storedSignal.stopLoss.toFixed(2)})`,
                   )
                 }
 
                 if (bothPrimaryTimeframesReversed) {
                   reasonDetails.push(
-                    `📉 MAJOR TREND REVERSAL! Both 4H and 1H now ${trend4h.toUpperCase()} (was ${activeSignal.direction})`,
+                    `📉 MAJOR TREND REVERSAL! Both 4H and 1H now ${trend4h.toUpperCase()} (was ${storedSignal.direction})`,
                   )
                 }
 
@@ -232,7 +470,7 @@ export async function GET(request: NextRequest) {
 
                 await sendTelegramAlert({
                   type: "reversal",
-                  signal: activeSignal,
+                  signal: storedSignal,
                   message: reversalReason,
                   price: currentPrice,
                 })
@@ -247,7 +485,7 @@ export async function GET(request: NextRequest) {
                 if (openTrades.length > 0) {
                   const trade = openTrades[openTrades.length - 1]
                   const pnl =
-                    activeSignal.direction === "bullish"
+                    storedSignal.direction === "bullish"
                       ? currentPrice - trade.entryPrice
                       : trade.entryPrice - currentPrice
                   const pnlPercent = (pnl / trade.entryPrice) * 100
@@ -272,273 +510,119 @@ export async function GET(request: NextRequest) {
             } else {
               console.log("[v0] ✅ Active signal still valid - No reversal detected")
             }
-          } catch (error) {
-            console.error("[v0] Error checking direction changes:", error)
-            // Continue execution even if this fails
           }
-        }
 
-        // Fetch multi-timeframe data
-        const timeframes: Timeframe[] = ["4h", "1h", "15m", "5m"]
-        const marketData = await twelveDataClient.fetchMultipleTimeframes(timeframes)
-        const currentPrice = await twelveDataClient.getLatestPrice()
+          if (inEmergencyCooldown && shouldSendAlert) {
+            const remainingMinutes = Math.ceil((EMERGENCY_EXIT_COOLDOWN_MS - timeSinceEmergencyExit) / (60 * 1000))
+            console.log(
+              "[v0] 🚫 Skipping new signal generation - Emergency cooldown active for",
+              remainingMinutes,
+              "more minutes",
+            )
 
-        console.log("[v0] Current XAUUSD price:", currentPrice)
-
-        // Analyze timeframes
-        const timeframeScores = timeframes.map((tf) => TradingEngine.analyzeTimeframe(marketData[tf], tf))
-
-        const trend4h = TradingEngine.detectTrend(marketData["4h"])
-        const trend1h = TradingEngine.detectTrend(marketData["1h"])
-        const trend15m = TradingEngine.detectTrend(marketData["15m"])
-        const trend5m = TradingEngine.detectTrend(marketData["5m"])
-
-        console.log("[v0] CRON - Detected trends:", { trend4h, trend1h, trend15m, trend5m })
-
-        const tierResult = calculateConfirmationTier(timeframeScores, trend4h, trend1h, trend15m, trend5m)
-        const currentTier = tierResult.tier
-        const currentMode = tierResult.mode
-
-        console.log("[v0] ==============================================")
-        console.log("[v0] TIER CALCULATION RESULT:")
-        console.log("[v0] Current tier:", currentTier)
-        console.log("[v0] Current mode:", currentMode)
-        console.log("[v0] Last alert tier:", lastAlertTier)
-        console.log("[v0] Debug info:", JSON.stringify(tierResult.debugInfo, null, 2))
-        console.log("[v0] ==============================================")
-
-        console.log("[v0] Scores:", timeframeScores.map((s) => `${s.timeframe}: ${s.score}/${s.maxScore}`).join(", "))
-
-        const marketStatus = getGoldMarketStatus()
-        console.log("[v0] Market status:", marketStatus.isOpen ? "OPEN" : "CLOSED")
-
-        const marketContext = await getMarketContext()
-        const tradingRestriction = shouldAvoidTrading(marketContext)
-
-        if (tradingRestriction.avoid) {
-          console.log("[v0] 🚫 Trading blocked:", tradingRestriction.reason)
-
-          // Send notification about trading restriction
-          if (marketStatus.isOpen) {
-            await sendTelegramAlert({
-              type: "status",
-              message: `⚠️ Trading suspended: ${tradingRestriction.reason}\n\nThe system will resume normal operation once the event passes.`,
+            return NextResponse.json({
+              success: true,
+              blocked: true,
+              reason: `Emergency exit cooldown active (${remainingMinutes} minutes remaining)`,
+              timestamp: new Date().toISOString(),
             })
           }
 
-          return NextResponse.json({
-            success: true,
-            blocked: true,
-            reason: tradingRestriction.reason,
-            timestamp: new Date().toISOString(),
-          })
-        }
+          if (shouldSendAlert) {
+            console.log("[v0] ======================================")
+            console.log("[v0] ALERT CONDITIONS MET!")
+            console.log("[v0] Current tier:", currentTier)
+            console.log("[v0] Last alert tier:", lastAlertTier)
+            console.log("[v0] ======================================")
 
-        const shouldSendAlert = marketStatus.isOpen && currentTier >= 3
+            try {
+              if (currentTier === 3 && lastAlertTier < 3) {
+                console.log("[v0] 📊 Sending TIER 3 alert...")
 
-        console.log("[v0] ==============================================")
-        console.log("[v0] ALERT CHECK:")
-        console.log("[v0] Market open:", marketStatus.isOpen)
-        console.log("[v0] Current tier >= 3:", currentTier >= 3)
-        console.log("[v0] Should send alert:", shouldSendAlert)
-        console.log("[v0] ==============================================")
+                const setupDirection = tierResult.debugInfo.conservativeMode ? trend4h : trend1h
+                const modeLabel = currentMode === "conservative" ? "Conservative (4H+1H)" : "Aggressive (1H+15M+5M)"
 
-        const storedSignal = SignalStore.getActiveSignal()
-        const storedDirection = SignalStore.getActiveSignalDirection()
+                if (currentMode === "aggressive") {
+                  console.log("[v0] ⚡ TIER 3 AGGRESSIVE - Generating limit order signal")
 
-        console.log("[v0] 🔍 DIRECTION CHECK:")
-        console.log("[v0] Stored active signal:", storedSignal ? "YES" : "NO")
-        console.log("[v0] Stored direction:", storedDirection)
-        console.log("[v0] Current trends - 4H:", trend4h, "1H:", trend1h, "15M:", trend15m, "5M:", trend5m)
+                  const signal = await TradingEngine.generateSignal(marketData, currentPrice, true)
 
-        const timeSinceEmergencyExit = Date.now() - lastEmergencyExitTimestamp
-        const inEmergencyCooldown = timeSinceEmergencyExit > 0 && timeSinceEmergencyExit < EMERGENCY_EXIT_COOLDOWN_MS
+                  if (signal) {
+                    console.log("[v0] ✅ Signal generated for tier 3 aggressive")
+                    console.log("[v0] Signal direction:", signal.direction)
+                    console.log("[v0] Entry:", signal.entryPrice, "Stop:", signal.stopLoss)
 
-        if (inEmergencyCooldown) {
-          const remainingMinutes = Math.ceil((EMERGENCY_EXIT_COOLDOWN_MS - timeSinceEmergencyExit) / (60 * 1000))
-          console.log("[v0] ⏸️  In emergency exit cooldown -", remainingMinutes, "minutes remaining")
-        }
+                    const lastSignalDirection = SignalStore.getActiveSignalDirection()
 
-        let reversalReason = ""
-        const reasonDetails: string[] = []
+                    if (lastSignalDirection && lastSignalDirection !== signal.direction) {
+                      console.log("[v0] 🔄 DIRECTION CHANGE DETECTED!")
+                      console.log("[v0] Previous:", lastSignalDirection, "→ New:", signal.direction)
 
-        if (storedSignal) {
-          const patternRecognizer = new PatternRecognizer()
-          const detected1hPatterns = patternRecognizer.detectPatterns(marketData["1h"])
+                      await sendTelegramAlert({
+                        type: "status",
+                        message: `🔄 *DIRECTION CHANGE ALERT!*\n\nMarket has shifted from ${lastSignalDirection.toUpperCase()} to ${signal.direction.toUpperCase()}\n\nPrevious trade may be invalidated. Review your position!`,
+                      })
+                    }
 
-          const opposingDirection = storedSignal.direction === "bullish" ? "bearish" : "bullish"
-          const reversalPatterns = detected1hPatterns.filter(
-            (p) =>
-              p.type === opposingDirection &&
-              (p.name.includes("Engulfing") ||
-                p.name.includes("Shooting Star") ||
-                p.name.includes("Hammer") ||
-                p.name.includes("Evening Star") ||
-                p.name.includes("Morning Star")),
-          )
+                    const signalConfidence = {
+                      score: Math.max(5, 8 - 2),
+                      recommendation: "consider" as const,
+                      factors: {
+                        timeframeAlignment: 0.8,
+                        trendStrength: 0.7,
+                        volatility: 0.7,
+                        sessionTiming: 0.8,
+                        marketContext: 0.8,
+                      },
+                    }
 
-          const strongReversalPattern = reversalPatterns.find((p) => p.strength >= 70)
+                    await sendTelegramAlert({
+                      type: "limit_order",
+                      signal,
+                      confidence: signalConfidence,
+                      timeframeScores,
+                      price: currentPrice,
+                    })
 
-          const riskAmount = Math.abs(storedSignal.entryPrice - storedSignal.stopLoss)
-          const currentRisk =
-            storedSignal.direction === "bullish"
-              ? storedSignal.entryPrice - currentPrice
-              : currentPrice - storedSignal.entryPrice
+                    console.log("[v0] ✅ Tier 3 aggressive limit order alert sent successfully")
+                    SignalStore.setActiveSignal(signal)
+                    lastAlertTier = 3
+                  } else {
+                    console.log("[v0] ⚠️ Signal generation returned null for tier 3 aggressive")
 
-          const riskPercentage = (currentRisk / riskAmount) * 100
+                    await sendTelegramAlert({
+                      type: "status",
+                      message: `🔍 *Setup Building* (Tier 3 - Aggressive)\n\nMode: ${modeLabel}\nDirection: ${setupDirection.toUpperCase()}\n\n${tierResult.debugInfo.strongTimeframes} timeframes showing strength.\n\nMonitor for entry opportunity...`,
+                    })
+                    lastAlertTier = 3
+                  }
+                } else {
+                  // Conservative mode tier 3: Just notify about setup building
+                  await sendTelegramAlert({
+                    type: "status",
+                    message: `🔍 *Setup Building* (Tier 3)\n\nMode: ${modeLabel}\nDirection: ${setupDirection.toUpperCase()}\n\n${tierResult.debugInfo.strongTimeframes} timeframes showing strength.\n\nMonitor for full alignment...`,
+                  })
+                  console.log("[v0] ✅ TIER 3 conservative alert sent successfully")
+                  lastAlertTier = 3
+                }
+              } else if (currentTier === 4) {
+                console.log("[v0] ⚡ TIER 4 - Full alignment detected")
 
-          const priceNearStop = riskPercentage >= 70
-          const priceHitStop =
-            (storedSignal.direction === "bullish" && currentPrice <= storedSignal.stopLoss) ||
-            (storedSignal.direction === "bearish" && currentPrice >= storedSignal.stopLoss)
+                const bullishCount = [trend4h, trend1h, trend15m, trend5m].filter((t) => t === "bullish").length
+                const bearishCount = [trend4h, trend1h, trend15m, trend5m].filter((t) => t === "bearish").length
+                const dominantDirection =
+                  bullishCount > bearishCount ? "bullish" : bearishCount > bullishCount ? "bearish" : "ranging"
 
-          const trend4hReversed =
-            (storedSignal.direction === "bullish" && trend4h === "bearish") ||
-            (storedSignal.direction === "bearish" && trend4h === "bullish")
+                console.log("[v0] Dominant direction:", dominantDirection)
 
-          const trend1hReversed =
-            (storedSignal.direction === "bullish" && trend1h === "bearish") ||
-            (storedSignal.direction === "bearish" && trend1h === "bullish")
-
-          const bothPrimaryTimeframesReversed = trend4hReversed && trend1hReversed
-
-          const shouldAlertReversal =
-            priceHitStop || priceNearStop || bothPrimaryTimeframesReversed || !!strongReversalPattern
-
-          console.log("[v0] 🔍 REVERSAL CONDITIONS:")
-          console.log("[v0] Price hit stop:", priceHitStop)
-          console.log("[v0] Price near stop (70%+):", priceNearStop, "Risk %:", riskPercentage.toFixed(1))
-          console.log(
-            "[v0] 4H reversed:",
-            trend4hReversed,
-            "(Current:",
-            trend4h,
-            "vs Signal:",
-            storedSignal.direction + ")",
-          )
-          console.log(
-            "[v0] 1H reversed:",
-            trend1hReversed,
-            "(Current:",
-            trend1h,
-            "vs Signal:",
-            storedSignal.direction + ")",
-          )
-          console.log("[v0] BOTH 4H + 1H reversed:", bothPrimaryTimeframesReversed)
-          console.log("[v0] Strong reversal pattern:", !!strongReversalPattern)
-          console.log("[v0] Should alert:", shouldAlertReversal)
-
-          if (shouldAlertReversal) {
-            console.log("[v0] ⚠️ REVERSAL DETECTED IN CRON!")
-
-            if (marketStatus.isOpen) {
-              if (priceHitStop) {
-                reasonDetails.push(
-                  `🛑 STOP LOSS HIT! Current: $${currentPrice.toFixed(2)}, Stop: $${storedSignal.stopLoss.toFixed(2)}`,
+                const signal = await TradingEngine.generateSignal(
+                  marketData,
+                  currentPrice,
+                  currentMode === "aggressive",
                 )
-              }
-
-              if (priceNearStop) {
-                reasonDetails.push(
-                  `⚠️ DANGER ZONE! Price is ${riskPercentage.toFixed(0)}% towards stop loss ($${storedSignal.stopLoss.toFixed(2)})`,
-                )
-              }
-
-              if (bothPrimaryTimeframesReversed) {
-                reasonDetails.push(
-                  `📉 MAJOR TREND REVERSAL! Both 4H and 1H now ${trend4h.toUpperCase()} (was ${storedSignal.direction})`,
-                )
-              }
-
-              if (strongReversalPattern) {
-                reasonDetails.push(
-                  `✨ ${strongReversalPattern.name.toUpperCase()} pattern (${strongReversalPattern.strength}% strength) signals ${opposingDirection} reversal`,
-                )
-              }
-
-              reversalReason = reasonDetails.join("\n\n")
-
-              await sendTelegramAlert({
-                type: "reversal",
-                signal: storedSignal,
-                message: reversalReason,
-                price: currentPrice,
-              })
-
-              console.log("[v0] ✅ EMERGENCY EXIT alert sent from cron")
-
-              lastEmergencyExitTimestamp = Date.now()
-              console.log("[v0] 🚫 Emergency exit cooldown started - No new signals for 15 minutes")
-
-              // Close trade in history
-              const openTrades = tradeHistoryManager.getAllTrades().filter((t) => t.status === "open")
-              if (openTrades.length > 0) {
-                const trade = openTrades[openTrades.length - 1]
-                const pnl =
-                  storedSignal.direction === "bullish"
-                    ? currentPrice - trade.entryPrice
-                    : trade.entryPrice - currentPrice
-                const pnlPercent = (pnl / trade.entryPrice) * 100
-                const rMultiple = pnl / riskAmount
-
-                tradeHistoryManager.updateTrade(trade.id, {
-                  exitPrice: currentPrice,
-                  exitTime: Date.now(),
-                  pnl,
-                  pnlPercent,
-                  rMultiple,
-                  status: "closed",
-                  exitReason: reversalReason,
-                  duration: Date.now() - trade.entryTime,
-                })
-                console.log("[v0] Trade closed in history:", trade.id, "PNL:", pnl.toFixed(2))
-              }
-
-              SignalStore.invalidateSignal()
-              lastAlertTier = 0
-            }
-          } else {
-            console.log("[v0] ✅ Active signal still valid - No reversal detected")
-          }
-        }
-
-        if (inEmergencyCooldown && shouldSendAlert) {
-          const remainingMinutes = Math.ceil((EMERGENCY_EXIT_COOLDOWN_MS - timeSinceEmergencyExit) / (60 * 1000))
-          console.log(
-            "[v0] 🚫 Skipping new signal generation - Emergency cooldown active for",
-            remainingMinutes,
-            "more minutes",
-          )
-
-          return NextResponse.json({
-            success: true,
-            blocked: true,
-            reason: `Emergency exit cooldown active (${remainingMinutes} minutes remaining)`,
-            timestamp: new Date().toISOString(),
-          })
-        }
-
-        if (shouldSendAlert) {
-          console.log("[v0] ======================================")
-          console.log("[v0] ALERT CONDITIONS MET!")
-          console.log("[v0] Current tier:", currentTier)
-          console.log("[v0] Last alert tier:", lastAlertTier)
-          console.log("[v0] ======================================")
-
-          try {
-            if (currentTier === 3 && lastAlertTier < 3) {
-              console.log("[v0] 📊 Sending TIER 3 alert...")
-
-              const setupDirection = tierResult.debugInfo.conservativeMode ? trend4h : trend1h
-              const modeLabel = currentMode === "conservative" ? "Conservative (4H+1H)" : "Aggressive (1H+15M+5M)"
-
-              if (currentMode === "aggressive") {
-                console.log("[v0] ⚡ TIER 3 AGGRESSIVE - Generating limit order signal")
-
-                const signal = await TradingEngine.generateSignal(marketData, currentPrice, true)
 
                 if (signal) {
-                  console.log("[v0] ✅ Signal generated for tier 3 aggressive")
+                  console.log("[v0] ✅ Signal generated for tier 4")
                   console.log("[v0] Signal direction:", signal.direction)
                   console.log("[v0] Entry:", signal.entryPrice, "Stop:", signal.stopLoss)
 
@@ -555,14 +639,14 @@ export async function GET(request: NextRequest) {
                   }
 
                   const signalConfidence = {
-                    score: Math.max(5, 8 - 2),
-                    recommendation: "consider" as const,
+                    score: 8,
+                    recommendation: "take" as const,
                     factors: {
-                      timeframeAlignment: 0.8,
-                      trendStrength: 0.7,
-                      volatility: 0.7,
-                      sessionTiming: 0.8,
-                      marketContext: 0.8,
+                      timeframeAlignment: 0.9,
+                      trendStrength: 0.85,
+                      volatility: 0.8,
+                      sessionTiming: 0.85,
+                      marketContext: 0.85,
                     },
                   }
 
@@ -574,129 +658,71 @@ export async function GET(request: NextRequest) {
                     price: currentPrice,
                   })
 
-                  console.log("[v0] ✅ Tier 3 aggressive limit order alert sent successfully")
+                  console.log("[v0] ✅ Limit order alert sent successfully")
                   SignalStore.setActiveSignal(signal)
-                  lastAlertTier = 3
+                  lastAlertTier = 4
                 } else {
-                  console.log("[v0] ⚠️ Signal generation returned null for tier 3 aggressive")
+                  console.log("[v0] ⚠️ Signal generation returned null")
+                  console.log("[v0] Sending generic get_ready alert instead")
 
                   await sendTelegramAlert({
-                    type: "status",
-                    message: `🔍 *Setup Building* (Tier 3 - Aggressive)\n\nMode: ${modeLabel}\nDirection: ${setupDirection.toUpperCase()}\n\n${tierResult.debugInfo.strongTimeframes} timeframes showing strength.\n\nMonitor for entry opportunity...`,
+                    type: "get_ready",
+                    timeframeScores,
+                    price: currentPrice,
+                    trend: dominantDirection,
                   })
-                  lastAlertTier = 3
+                  lastAlertTier = 4
                 }
-              } else {
-                // Conservative mode tier 3: Just notify about setup building
-                await sendTelegramAlert({
-                  type: "status",
-                  message: `🔍 *Setup Building* (Tier 3)\n\nMode: ${modeLabel}\nDirection: ${setupDirection.toUpperCase()}\n\n${tierResult.debugInfo.strongTimeframes} timeframes showing strength.\n\nMonitor for full alignment...`,
-                })
-                console.log("[v0] ✅ TIER 3 conservative alert sent successfully")
-                lastAlertTier = 3
               }
-            } else if (currentTier === 4) {
-              console.log("[v0] ⚡ TIER 4 - Full alignment detected")
-
-              const bullishCount = [trend4h, trend1h, trend15m, trend5m].filter((t) => t === "bullish").length
-              const bearishCount = [trend4h, trend1h, trend15m, trend5m].filter((t) => t === "bearish").length
-              const dominantDirection =
-                bullishCount > bearishCount ? "bullish" : bearishCount > bullishCount ? "bearish" : "ranging"
-
-              console.log("[v0] Dominant direction:", dominantDirection)
-
-              const signal = await TradingEngine.generateSignal(marketData, currentPrice, currentMode === "aggressive")
-
-              if (signal) {
-                console.log("[v0] ✅ Signal generated for tier 4")
-                console.log("[v0] Signal direction:", signal.direction)
-                console.log("[v0] Entry:", signal.entryPrice, "Stop:", signal.stopLoss)
-
-                const lastSignalDirection = SignalStore.getActiveSignalDirection()
-
-                if (lastSignalDirection && lastSignalDirection !== signal.direction) {
-                  console.log("[v0] 🔄 DIRECTION CHANGE DETECTED!")
-                  console.log("[v0] Previous:", lastSignalDirection, "→ New:", signal.direction)
-
-                  await sendTelegramAlert({
-                    type: "status",
-                    message: `🔄 *DIRECTION CHANGE ALERT!*\n\nMarket has shifted from ${lastSignalDirection.toUpperCase()} to ${signal.direction.toUpperCase()}\n\nPrevious trade may be invalidated. Review your position!`,
-                  })
-                }
-
-                const signalConfidence = {
-                  score: 8,
-                  recommendation: "take" as const,
-                  factors: {
-                    timeframeAlignment: 0.9,
-                    trendStrength: 0.85,
-                    volatility: 0.8,
-                    sessionTiming: 0.85,
-                    marketContext: 0.85,
-                  },
-                }
-
-                await sendTelegramAlert({
-                  type: "limit_order",
-                  signal,
-                  confidence: signalConfidence,
-                  timeframeScores,
-                  price: currentPrice,
-                })
-
-                console.log("[v0] ✅ Limit order alert sent successfully")
-                SignalStore.setActiveSignal(signal)
-                lastAlertTier = 4
-              } else {
-                console.log("[v0] ⚠️ Signal generation returned null")
-                console.log("[v0] Sending generic get_ready alert instead")
-
-                await sendTelegramAlert({
-                  type: "get_ready",
-                  timeframeScores,
-                  price: currentPrice,
-                  trend: dominantDirection,
-                })
-                lastAlertTier = 4
-              }
+            } catch (telegramError) {
+              console.error("[v0] ❌ Telegram alert error:", telegramError)
+              console.error(
+                "[v0] Error details:",
+                telegramError instanceof Error ? telegramError.message : String(telegramError),
+              )
             }
-          } catch (telegramError) {
-            console.error("[v0] ❌ Telegram alert error:", telegramError)
-            console.error(
-              "[v0] Error details:",
-              telegramError instanceof Error ? telegramError.message : String(telegramError),
-            )
+          } else {
+            console.log("[v0] ❌ Alert conditions NOT met")
+            console.log("[v0] Market open:", marketStatus.isOpen, "| Tier:", currentTier, "| Required: 3+")
           }
-        } else {
-          console.log("[v0] ❌ Alert conditions NOT met")
-          console.log("[v0] Market open:", marketStatus.isOpen, "| Tier:", currentTier, "| Required: 3+")
+
+          if (currentTier < 3 && lastAlertTier >= 3) {
+            console.log("[v0] ⬇️ Tier dropped below 3 - resetting lastAlertTier")
+            lastAlertTier = 0
+          }
+
+          console.log("[v0] ========================================")
+          console.log("[v0] CRON JOB COMPLETED SUCCESSFULLY")
+          console.log("[v0] Final state - Tier:", currentTier, "| Last alert:", lastAlertTier)
+          console.log("[v0] ========================================")
+
+          return NextResponse.json({
+            success: true,
+            currentTier,
+            currentMode,
+            lastAlertTier,
+            hasActiveSignal: SignalStore.hasActiveSignal(),
+            activeSignalDirection: SignalStore.getActiveSignalDirection(),
+            tierDebugInfo: tierResult.debugInfo,
+            timeframeScores: timeframeScores.map((s) => ({
+              timeframe: s.timeframe,
+              score: s.score,
+              maxScore: s.maxScore,
+            })),
+            timestamp: new Date().toISOString(),
+          })
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("Daily API limit reached")) {
+            console.log("[v0] ⚠️ API limit reached - returning success to prevent cron failure")
+            return NextResponse.json({
+              success: true,
+              rateLimited: true,
+              message: "API limit reached. Service resumes at midnight UTC.",
+              timestamp: new Date().toISOString(),
+            })
+          }
+          throw error
         }
-
-        if (currentTier < 3 && lastAlertTier >= 3) {
-          console.log("[v0] ⬇️ Tier dropped below 3 - resetting lastAlertTier")
-          lastAlertTier = 0
-        }
-
-        console.log("[v0] ========================================")
-        console.log("[v0] CRON JOB COMPLETED SUCCESSFULLY")
-        console.log("[v0] Final state - Tier:", currentTier, "| Last alert:", lastAlertTier)
-        console.log("[v0] ========================================")
-
-        return NextResponse.json({
-          success: true,
-          currentTier,
-          currentMode,
-          lastAlertTier,
-          hasActiveSignal: SignalStore.hasActiveSignal(),
-          activeSignalDirection: SignalStore.getActiveSignalDirection(),
-          tierDebugInfo: tierResult.debugInfo,
-          timeframeScores: timeframeScores.map((s) => ({
-            timeframe: s.timeframe,
-            score: s.score,
-            maxScore: s.maxScore,
-          })),
-          timestamp: new Date().toISOString(),
-        })
       })()
 
       return (await Promise.race([executionPromise, timeoutPromise])) as Response
