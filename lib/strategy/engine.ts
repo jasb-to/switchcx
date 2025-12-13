@@ -19,6 +19,7 @@ import {
 } from "./indicators"
 import { detectBreakoutZones, checkBreakout, detectTrendlines, checkTrendlineBreakout } from "./breakout-detector"
 import { getCurrentSession, shouldTradeInSession } from "./session-filter"
+import { detectCandlePatterns, patternsConfirmDirection } from "./pattern-recognition"
 
 export class TradingEngine {
   private readonly timeframes: Timeframe[] = ["4h", "1h", "15m", "5m"]
@@ -294,6 +295,22 @@ export class TradingEngine {
       return null
     }
 
+    // Analyzing candle patterns for additional confirmation...
+    console.log("[v0] Analyzing candle patterns for additional confirmation...")
+    const detectedPatterns = detectCandlePatterns(marketData["1h"], 20)
+    console.log("[v0] Detected patterns:", detectedPatterns.map((p) => p.name).join(", ") || "none")
+
+    const patternConfirmation = patternsConfirmDirection(detectedPatterns, validBreakout.direction)
+
+    if (patternConfirmation.confirmed) {
+      console.log(
+        "[v0] ✅ Pattern confirmation STRONG:",
+        patternConfirmation.supportingPatterns.map((p) => `${p.name} (${p.strength}%)`).join(", "),
+      )
+    } else if (detectedPatterns.length > 0) {
+      console.log("[v0] ⚠️ Patterns detected but do not confirm breakout direction")
+    }
+
     const candles5m = marketData["5m"]
     const stronglyOpposing =
       (validBreakout.direction === "bullish" && trend5m === "bearish") ||
@@ -360,12 +377,15 @@ export class TradingEngine {
       chandelierStop,
       status: "active",
       breakoutZone: "zone" in validBreakout ? validBreakout.zone : undefined,
+      candlePatterns: detectedPatterns.slice(0, 3), // Top 3 patterns
       volatility,
       timeframeScores,
       session,
       metadata: {
         signalMode,
         breakoutType: "zone" in validBreakout ? "horizontal" : "trendline",
+        patternConfirmed: patternConfirmation.confirmed,
+        patternStrength: patternConfirmation.strength,
       },
     }
 
@@ -376,6 +396,10 @@ export class TradingEngine {
     console.log("[v0]   TP1 (2R):", signal.tp1.toFixed(2))
     console.log("[v0]   TP2 (3R):", signal.tp2.toFixed(2))
     console.log("[v0]   Risk:", riskAmount.toFixed(2))
+    console.log("[v0]   Pattern Confirmed:", patternConfirmation.confirmed ? "YES" : "NO")
+    if (patternConfirmation.confirmed) {
+      console.log("[v0]   Pattern Strength:", patternConfirmation.strength.toFixed(1) + "%")
+    }
 
     this.riskManagement.currentSessionTrades++
 

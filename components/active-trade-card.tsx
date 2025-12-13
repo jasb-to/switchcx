@@ -2,7 +2,7 @@
 
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { TrendingUp, TrendingDown, Shield, Target, Zap } from "lucide-react"
+import { TrendingUp, TrendingDown, Shield, Target, Zap, Sparkles } from "lucide-react"
 import type { TradingSignal } from "@/lib/types/trading"
 
 interface ActiveTradeCardProps {
@@ -44,6 +44,10 @@ export function ActiveTradeCard({ signal, currentPrice, rejectionReason, signalM
 
   const tradeSignalMode = signal.metadata?.signalMode || signalMode || "conservative"
 
+  const candlePatterns = signal.candlePatterns || []
+  const hasPatternConfirmation = signal.metadata?.patternConfirmed || false
+  const patternStrength = signal.metadata?.patternStrength || 0
+
   return (
     <Card className={`p-6 ${borderColor} bg-card`}>
       <div className="flex items-center justify-between mb-6">
@@ -82,6 +86,43 @@ export function ActiveTradeCard({ signal, currentPrice, rejectionReason, signalM
                 ? "4H + 1H aligned for high probability"
                 : "Lower timeframes aligned - catching early momentum"}
             </div>
+          </div>
+        </div>
+      )}
+
+      {candlePatterns.length > 0 && (
+        <div
+          className={`mb-4 p-3 rounded-lg border ${hasPatternConfirmation ? "bg-success/10 border-success/30" : "bg-accent/30 border-border"}`}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles className={`h-4 w-4 ${hasPatternConfirmation ? "text-success" : "text-muted-foreground"}`} />
+            <div className="flex-1">
+              <div className="text-sm font-medium text-foreground">
+                {hasPatternConfirmation ? "✅ Pattern Confirmed" : "📊 Patterns Detected"}
+              </div>
+              {hasPatternConfirmation && (
+                <div className="text-xs text-muted-foreground">
+                  Strength: {patternStrength.toFixed(0)}% - Candle formations support breakout direction
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {candlePatterns.map((pattern, idx) => (
+              <Badge
+                key={idx}
+                variant="outline"
+                className={`text-xs ${
+                  pattern.type === signal.direction
+                    ? "border-success/50 text-success"
+                    : pattern.type === "indecision"
+                      ? "border-warning/50 text-warning"
+                      : "border-muted text-muted-foreground"
+                }`}
+              >
+                {pattern.name} ({pattern.strength}%)
+              </Badge>
+            ))}
           </div>
         </div>
       )}

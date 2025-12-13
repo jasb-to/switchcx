@@ -54,6 +54,8 @@ export default function HomePage() {
   const [refreshing, setRefreshing] = useState(false)
   const [testingTelegram, setTestingTelegram] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
+  const [backtestLoading, setBacktestLoading] = useState(false)
+  const [backtestResults, setBacktestResults] = useState<any | null>(null)
 
   const fetchMarketData = async () => {
     try {
@@ -93,6 +95,25 @@ export default function HomePage() {
       alert("Failed to send Telegram test message")
     } finally {
       setTestingTelegram(false)
+    }
+  }
+
+  const runBacktest = async () => {
+    try {
+      setBacktestLoading(true)
+      const response = await fetch("/api/backtest")
+      const result = await response.json()
+
+      if (result.success) {
+        setBacktestResults(result.data)
+      } else {
+        alert(`Backtest failed: ${result.error}`)
+      }
+    } catch (error) {
+      console.error("Error running backtest:", error)
+      alert("Failed to run backtest")
+    } finally {
+      setBacktestLoading(false)
     }
   }
 
@@ -142,6 +163,16 @@ export default function HomePage() {
             </div>
             <div className="flex gap-2">
               <Button
+                onClick={runBacktest}
+                disabled={backtestLoading}
+                variant="outline"
+                size="sm"
+                className="gap-2 bg-transparent"
+              >
+                <RefreshCw className={`h-4 w-4 ${backtestLoading ? "animate-spin" : ""}`} />
+                Run Backtest
+              </Button>
+              <Button
                 onClick={testTelegram}
                 disabled={testingTelegram}
                 variant="outline"
@@ -189,6 +220,150 @@ export default function HomePage() {
               >
                 Retry
               </Button>
+            </div>
+          </div>
+        )}
+
+        {backtestResults && (
+          <div className="bg-card border border-border rounded-lg p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold">Backtest Results (Last 200 Candles)</h2>
+              <Button onClick={() => setBacktestResults(null)} variant="ghost" size="sm">
+                Close
+              </Button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* Conservative Strategy */}
+              <div className="border border-border rounded-lg p-4">
+                <h3 className="font-semibold text-lg mb-3 text-primary">Conservative Mode</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total Trades:</span>
+                    <span className="font-medium">{backtestResults.conservative.totalTrades || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Winners:</span>
+                    <span className="font-medium text-green-500">{backtestResults.conservative.winners || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Losers:</span>
+                    <span className="font-medium text-red-500">{backtestResults.conservative.losers || 0}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-border pt-2 mt-2">
+                    <span className="text-muted-foreground">Win Rate:</span>
+                    <span className="font-medium">
+                      {backtestResults.conservative.winRate != null
+                        ? (backtestResults.conservative.winRate * 100).toFixed(1)
+                        : "0.0"}
+                      %
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total P&L:</span>
+                    <span
+                      className={`font-medium ${(backtestResults.conservative.totalProfitLoss || 0) >= 0 ? "text-green-500" : "text-red-500"}`}
+                    >
+                      $
+                      {backtestResults.conservative.totalProfitLoss != null
+                        ? backtestResults.conservative.totalProfitLoss.toFixed(2)
+                        : "0.00"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Avg R-Multiple:</span>
+                    <span className="font-medium">
+                      {backtestResults.conservative.avgRMultiple != null
+                        ? backtestResults.conservative.avgRMultiple.toFixed(2)
+                        : "0.00"}
+                      R
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Max Drawdown:</span>
+                    <span className="font-medium text-red-500">
+                      $
+                      {backtestResults.conservative.maxDrawdown != null
+                        ? backtestResults.conservative.maxDrawdown.toFixed(2)
+                        : "0.00"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Aggressive Strategy */}
+              <div className="border border-border rounded-lg p-4">
+                <h3 className="font-semibold text-lg mb-3 text-primary">Aggressive Mode</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total Trades:</span>
+                    <span className="font-medium">{backtestResults.aggressive.totalTrades || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Winners:</span>
+                    <span className="font-medium text-green-500">{backtestResults.aggressive.winners || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Losers:</span>
+                    <span className="font-medium text-red-500">{backtestResults.aggressive.losers || 0}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-border pt-2 mt-2">
+                    <span className="text-muted-foreground">Win Rate:</span>
+                    <span className="font-medium">
+                      {backtestResults.aggressive.winRate != null
+                        ? (backtestResults.aggressive.winRate * 100).toFixed(1)
+                        : "0.0"}
+                      %
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total P&L:</span>
+                    <span
+                      className={`font-medium ${(backtestResults.aggressive.totalProfitLoss || 0) >= 0 ? "text-green-500" : "text-red-500"}`}
+                    >
+                      $
+                      {backtestResults.aggressive.totalProfitLoss != null
+                        ? backtestResults.aggressive.totalProfitLoss.toFixed(2)
+                        : "0.00"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Avg R-Multiple:</span>
+                    <span className="font-medium">
+                      {backtestResults.aggressive.avgRMultiple != null
+                        ? backtestResults.aggressive.avgRMultiple.toFixed(2)
+                        : "0.00"}
+                      R
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Max Drawdown:</span>
+                    <span className="font-medium text-red-500">
+                      $
+                      {backtestResults.aggressive.maxDrawdown != null
+                        ? backtestResults.aggressive.maxDrawdown.toFixed(2)
+                        : "0.00"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Recommendation */}
+            <div className="bg-primary/10 border border-primary/20 rounded-lg p-4">
+              <h4 className="font-semibold mb-2">Recommendation</h4>
+              <p className="text-sm text-muted-foreground">{backtestResults.analysis.winner}</p>
+              <div className="mt-2 flex gap-4 text-xs">
+                <span>Conservative Score: {backtestResults.analysis.conservativeScore}</span>
+                <span>Aggressive Score: {backtestResults.analysis.aggressiveScore}</span>
+              </div>
+            </div>
+
+            {/* ML Note */}
+            <div className="bg-muted/50 rounded-lg p-4 text-sm text-muted-foreground">
+              <strong>Note:</strong> This is a rule-based technical analysis system with NO machine learning. The
+              strategy uses fixed EMA crossovers (50/200 conservative, 8/21 aggressive), MACD, RSI, and trendline
+              breakout detection. There is no adaptive learning or pattern training.
             </div>
           </div>
         )}

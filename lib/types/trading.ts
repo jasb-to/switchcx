@@ -29,6 +29,14 @@ export interface BreakoutZone {
   trendlineAngle?: number
 }
 
+export interface CandlePattern {
+  name: string
+  type: "bullish" | "bearish" | "indecision"
+  strength: number
+  index: number
+  description: string
+}
+
 export interface ChandelierExit {
   stopLoss: number
   atrMultiplier: number
@@ -73,6 +81,7 @@ export interface TradingSignal {
   chandelierStop: number
   status: SignalStatus
   breakoutZone?: BreakoutZone
+  candlePatterns?: CandlePattern[]
   volatility: VolatilityMetrics
   timeframeScores: TimeframeScore[]
   session: TradingSession
@@ -85,6 +94,8 @@ export interface TradingSignal {
     warning?: string
     signalMode?: "conservative" | "aggressive"
     breakoutType?: "horizontal" | "trendline"
+    patternConfirmed?: boolean
+    patternStrength?: number
   }
 }
 

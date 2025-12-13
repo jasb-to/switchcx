@@ -128,6 +128,19 @@ Strength: ${signal.breakoutZone.strength}/100${trendlineInfo}`
 Direction: ${direction}
 Pattern: Dynamic trendline break`
 
+    const candlePatterns = signal.candlePatterns || []
+    const hasPatternConfirmation = signal.metadata?.patternConfirmed || false
+    const patternStrength = signal.metadata?.patternStrength || 0
+
+    const patternSection =
+      candlePatterns.length > 0
+        ? `\n\n✨ *Candle Patterns*${hasPatternConfirmation ? " (CONFIRMED)" : ""}
+${candlePatterns
+  .slice(0, 3)
+  .map((p) => `${p.type === signal.direction ? "✅" : "⚠️"} ${p.name} (${p.strength}%)`)
+  .join("\n")}${hasPatternConfirmation ? `\nPattern Strength: ${patternStrength.toFixed(0)}%` : ""}`
+        : ""
+
     return `
 ${emoji} *LIMIT ORDER READY* (3/4 Confirmations)
 
@@ -143,7 +156,7 @@ ${signal.tp2 ? `TP2 (3R): $${this.formatPrice(signal.tp2)}` : ""}
 
 ⏰ *Session*: ${session}
 
-${breakoutDetails}
+${breakoutDetails}${patternSection}
 
 📊 *Timeframe Confirmations*
 ${signal.timeframeScores
@@ -208,6 +221,19 @@ Touches: ${signal.breakoutZone.touches}${trendlineInfo}`
 Direction: ${direction}
 Pattern: Dynamic trendline break`
 
+    const candlePatterns = signal.candlePatterns || []
+    const hasPatternConfirmation = signal.metadata?.patternConfirmed || false
+    const patternStrength = signal.metadata?.patternStrength || 0
+
+    const patternSection =
+      candlePatterns.length > 0
+        ? `\n\n✨ *Candle Patterns*${hasPatternConfirmation ? " ✅" : ""}
+${candlePatterns
+  .slice(0, 3)
+  .map((p) => `${p.type === signal.direction ? "✅" : "⚠️"} ${p.name} (${p.strength}%)`)
+  .join("\n")}${hasPatternConfirmation ? `\nConfirmation Strength: ${patternStrength.toFixed(0)}%` : ""}`
+        : ""
+
     return `
 ${emoji} *ENTER NOW!* (4/4 Confirmations) ${emoji}
 
@@ -226,7 +252,7 @@ Chandelier Stop: $${this.formatPrice(signal.chandelierStop)}
 
 ⏰ *Session*: ${session}
 
-${breakoutDetails}
+${breakoutDetails}${patternSection}
 
 📈 *Volatility*
 ATR: $${this.formatPrice(signal.volatility.atr)}
