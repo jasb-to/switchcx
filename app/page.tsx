@@ -53,18 +53,24 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [testingTelegram, setTestingTelegram] = useState(false)
+  const [apiError, setApiError] = useState<string | null>(null)
 
   const fetchMarketData = async () => {
     try {
       setRefreshing(true)
+      setApiError(null)
       const response = await fetch("/api/signals")
       const result = await response.json()
 
       if (result.success) {
+        if (result.data.rejectionReason?.includes("Daily API limit")) {
+          setApiError(result.data.rejectionReason)
+        }
         setMarketData(result.data)
       }
     } catch (error) {
       console.error("Error fetching market data:", error)
+      setApiError("Failed to connect to server. Please try again later.")
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -92,9 +98,13 @@ export default function HomePage() {
 
   useEffect(() => {
     fetchMarketData()
-    const interval = setInterval(fetchMarketData, 60000)
+    const interval = setInterval(() => {
+      if (!apiError) {
+        fetchMarketData()
+      }
+    }, 60000)
     return () => clearInterval(interval)
-  }, [])
+  }, [apiError])
 
   if (loading) {
     return (
@@ -158,6 +168,31 @@ export default function HomePage() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6 space-y-6">
+        {apiError && (
+          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <div className="text-destructive">⚠️</div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-destructive mb-1">API Limit Reached</h3>
+                <p className="text-sm text-muted-foreground">{apiError}</p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Auto-refresh paused. Existing active trades are still being monitored.
+                </p>
+              </div>
+              <Button
+                onClick={() => {
+                  setApiError(null)
+                  fetchMarketData()
+                }}
+                variant="outline"
+                size="sm"
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Market Header */}
         <MarketHeader
           currentPrice={marketData.currentPrice}
