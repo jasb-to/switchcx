@@ -90,8 +90,10 @@ export class TradingEngine {
       return "ranging"
     }
 
-    const fastPeriod = mode === "aggressive" ? 8 : 50
-    const slowPeriod = mode === "aggressive" ? 21 : 200
+    // Conservative: 20/50 EMA (practical for 4H timeframe intraday trading)
+    // Aggressive: 8/21 EMA (faster entries)
+    const fastPeriod = mode === "aggressive" ? 8 : 20
+    const slowPeriod = mode === "aggressive" ? 21 : 50
 
     const emaFast = calculateEMA(candles, fastPeriod)
     const emaSlow = calculateEMA(candles, slowPeriod)
@@ -208,7 +210,7 @@ export class TradingEngine {
       return null
     }
 
-    // Check conservative mode with 50/200 EMAs
+    // Check conservative mode with 20/50 EMAs
     const trend4h_conservative = this.detectTrend(marketData["4h"], "conservative")
     const trend1h_conservative = this.detectTrend(marketData["1h"], "conservative")
 
@@ -231,7 +233,7 @@ export class TradingEngine {
     if (!conservativeMode && !aggressiveMode) {
       if (!conservativeMode) {
         console.log(
-          "[v0] Conservative mode (50/200 EMA) failed - 4H:",
+          "[v0] Conservative mode (20/50 EMA) failed - 4H:",
           trend4h_conservative,
           "1H:",
           trend1h_conservative,
@@ -244,7 +246,7 @@ export class TradingEngine {
     }
 
     const signalMode = aggressiveMode ? "aggressive" : "conservative"
-    console.log("[v0] Signal mode:", signalMode, signalMode === "conservative" ? "(50/200 EMA)" : "(8/21 EMA)")
+    console.log("[v0] Signal mode:", signalMode, signalMode === "conservative" ? "(20/50 EMA)" : "(8/21 EMA)")
 
     // Use the trends from the appropriate mode for the rest of signal generation
     const trend4h = trend4h_conservative

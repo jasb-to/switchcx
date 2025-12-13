@@ -1,6 +1,7 @@
 // Twelve Data API client with rate limiting and error handling
 
 import type { Candle, Timeframe } from "../types/trading"
+import { rateLimitCache } from "../cache/rate-limit-cache"
 
 interface TwelveDataCandle {
   datetime: string
@@ -30,8 +31,6 @@ class TwelveDataClient {
   private isProcessing = false
   private lastRequestTime = 0
   private readonly minRequestInterval = 2000 // 2 seconds between requests
-  private currentKeyIndex = 0
-  private exhaustedKeys = new Set<number>()
 
   private getApiKeys(): string[] {
     const keys = []
@@ -57,31 +56,6 @@ class TwelveDataClient {
 
     console.log(`[v0] Loaded ${keys.length} Twelve Data API key(s)`)
     return keys
-  }
-
-  private getNextApiKey(): string {
-    const keys = this.getApiKeys()
-
-    if (this.exhaustedKeys.size >= keys.length) {
-      throw new Error(
-        `Daily API limit reached. All ${keys.length} API keys exhausted. Service resumes at midnight UTC.`,
-      )
-    }
-
-    let attempts = 0
-    while (attempts < keys.length) {
-      const key = keys[this.currentKeyIndex]
-
-      if (!this.exhaustedKeys.has(this.currentKeyIndex)) {
-        this.currentKeyIndex = (this.currentKeyIndex + 1) % keys.length
-        return key
-      }
-
-      this.currentKeyIndex = (this.currentKeyIndex + 1) % keys.length
-      attempts++
-    }
-
-    throw new Error(`All ${keys.length} API keys have been exhausted. Daily limit reached. Resets at midnight UTC.`)
   }
 
   private async throttle(): Promise<void> {
@@ -150,17 +124,35 @@ class TwelveDataClient {
   }
 
   async fetchCandles(timeframe: Timeframe, outputSize = 200): Promise<Candle[]> {
-    if (this.exhaustedKeys.size >= this.getApiKeys().length) {
+    if (rateLimitCache.isRateLimited()) {
+      const resetTime = new Date(rateLimitCache.getResetTime()).toISOString()
       throw new Error(
-        `Daily API limit reached. All ${this.getApiKeys().length} API keys exhausted (800 credits/day each). Service resumes at midnight UTC.`,
+        `Daily API limit reached. All API keys exhausted. Service resumes at midnight UTC (${resetTime}).`,
       )
     }
 
     return this.enqueueRequest(async () => {
       const interval = this.mapTimeframeToInterval(timeframe)
-      const keyIndexBeforeRequest = this.currentKeyIndex
+      const keys = this.getApiKeys()
 
-      const apiKey = this.getNextApiKey()
+      const exhaustedKeys = rateLimitCache.getExhaustedKeys()
+
+      let apiKey: string | null = null
+      let keyIndex = -1
+
+      for (let i = 0; i < keys.length; i++) {
+        if (!exhaustedKeys.has(i)) {
+          apiKey = keys[i]
+          keyIndex = i
+          break
+        }
+      }
+
+      if (!apiKey) {
+        throw new Error(
+          `Daily API limit reached. All ${keys.length} API keys exhausted. Service resumes at midnight UTC.`,
+        )
+      }
 
       const url = new URL(`${this.baseUrl}/time_series`)
       url.searchParams.append("symbol", this.symbol)
@@ -189,11 +181,11 @@ class TwelveDataClient {
         if (data.status === "error") {
           const errorData = data as any
           if (errorData.code === 429) {
-            console.warn(`[v0] API key ${keyIndexBeforeRequest + 1} exhausted. Marking as unavailable.`)
-            this.exhaustedKeys.add(keyIndexBeforeRequest)
+            console.warn(`[v0] API key ${keyIndex + 1} exhausted. Marking as unavailable.`)
+            rateLimitCache.markKeyExhausted(keyIndex, keys.length)
 
             throw new Error(
-              `Daily API limit reached. ${this.exhaustedKeys.size}/${this.getApiKeys().length} keys exhausted. Service resumes at midnight UTC.`,
+              `Daily API limit reached. ${rateLimitCache.getExhaustedKeys().size}/${keys.length} keys exhausted. Service resumes at midnight UTC.`,
             )
           }
 
@@ -215,6 +207,10 @@ class TwelveDataClient {
   }
 
   async fetchMultipleTimeframes(timeframes: Timeframe[]): Promise<Record<Timeframe, Candle[]>> {
+    if (rateLimitCache.isRateLimited()) {
+      throw new Error(`Daily API limit reached. All API keys exhausted. Service resumes at midnight UTC.`)
+    }
+
     const results: Record<string, Candle[]> = {}
 
     for (const timeframe of timeframes) {
@@ -239,13 +235,28 @@ class TwelveDataClient {
   }
 
   async getLatestPrice(): Promise<number> {
-    if (this.exhaustedKeys.size >= this.getApiKeys().length) {
+    if (rateLimitCache.isRateLimited()) {
       throw new Error(`Daily API limit reached. Service resumes at midnight UTC.`)
     }
 
     return this.enqueueRequest(async () => {
-      const keyIndexBeforeRequest = this.currentKeyIndex
-      const apiKey = this.getNextApiKey()
+      const keys = this.getApiKeys()
+      const exhaustedKeys = rateLimitCache.getExhaustedKeys()
+
+      let apiKey: string | null = null
+      let keyIndex = -1
+
+      for (let i = 0; i < keys.length; i++) {
+        if (!exhaustedKeys.has(i)) {
+          apiKey = keys[i]
+          keyIndex = i
+          break
+        }
+      }
+
+      if (!apiKey) {
+        throw new Error(`Daily API limit reached. Service resumes at midnight UTC.`)
+      }
 
       const url = new URL(`${this.baseUrl}/price`)
       url.searchParams.append("symbol", this.symbol)
@@ -263,8 +274,8 @@ class TwelveDataClient {
         const data = await response.json()
 
         if (data.status === "error" && data.code === 429) {
-          console.warn(`[v0] API key ${keyIndexBeforeRequest + 1} exhausted. Marking as unavailable.`)
-          this.exhaustedKeys.add(keyIndexBeforeRequest)
+          console.warn(`[v0] API key ${keyIndex + 1} exhausted. Marking as unavailable.`)
+          rateLimitCache.markKeyExhausted(keyIndex, keys.length)
 
           throw new Error(`Daily API limit reached. Service resumes at midnight UTC.`)
         }

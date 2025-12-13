@@ -83,7 +83,7 @@ export async function GET() {
           aggressiveScore: aggressiveScore.toFixed(2),
           winner:
             recommendation === "conservative"
-              ? "Conservative (50/200 EMA)"
+              ? "Conservative (20/50 EMA)" // Updated from 50/200 to 20/50 EMA
               : recommendation === "aggressive"
                 ? "Aggressive (8/21 EMA)"
                 : "Both strategies perform equally",

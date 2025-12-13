@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { MarketHeader } from "@/components/market-header"
 import { TimeframeScoreboard } from "@/components/timeframe-scoreboard"
@@ -56,8 +56,14 @@ export default function HomePage() {
   const [apiError, setApiError] = useState<string | null>(null)
   const [backtestLoading, setBacktestLoading] = useState(false)
   const [backtestResults, setBacktestResults] = useState<any | null>(null)
+  const isRateLimitedRef = useRef(false)
 
   const fetchMarketData = async () => {
+    if (isRateLimitedRef.current) {
+      console.log("[v0] Skipping fetch - rate limited")
+      return
+    }
+
     try {
       setRefreshing(true)
       setApiError(null)
@@ -67,6 +73,7 @@ export default function HomePage() {
       if (result.success) {
         if (result.data.rejectionReason?.includes("Daily API limit")) {
           setApiError(result.data.rejectionReason)
+          isRateLimitedRef.current = true
         }
         setMarketData(result.data)
       }
@@ -120,12 +127,12 @@ export default function HomePage() {
   useEffect(() => {
     fetchMarketData()
     const interval = setInterval(() => {
-      if (!apiError) {
+      if (!isRateLimitedRef.current) {
         fetchMarketData()
       }
-    }, 60000)
+    }, 300000) // 5 minutes instead of 60 seconds
     return () => clearInterval(interval)
-  }, [apiError])
+  }, [])
 
   if (loading) {
     return (
@@ -213,6 +220,7 @@ export default function HomePage() {
               <Button
                 onClick={() => {
                   setApiError(null)
+                  isRateLimitedRef.current = false
                   fetchMarketData()
                 }}
                 variant="outline"
@@ -434,7 +442,7 @@ export default function HomePage() {
             {/* ML Note */}
             <div className="bg-muted/50 rounded-lg p-4 text-sm text-muted-foreground">
               <strong>Note:</strong> This is a rule-based technical analysis system with NO machine learning. The
-              strategy uses fixed EMA crossovers (50/200 conservative, 8/21 aggressive), MACD, RSI, and trendline
+              strategy uses fixed EMA crossovers (20/50 conservative, 8/21 aggressive), MACD, RSI, and trendline
               breakout detection. There is no adaptive learning or pattern training.
             </div>
           </div>
