@@ -9,7 +9,7 @@ import { getGoldMarketStatus } from "@/lib/utils/market-hours"
 import { getMarketContext, shouldAvoidTrading } from "@/lib/market-context/intelligence"
 import { PatternRecognizer } from "@/lib/strategy/pattern-recognition"
 import { tradeHistoryManager } from "@/lib/trade-history/trade-history-manager"
-import { calculateConfirmationTier } from "@/lib/utils/tier-calculation"
+import { calculateConfirmationTier } from "@/lib/strategy/tier-calculator"
 import type { Timeframe } from "@/lib/types/trading"
 
 export const maxDuration = 60
