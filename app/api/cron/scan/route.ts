@@ -712,7 +712,13 @@ export async function GET(request: NextRequest) {
             timestamp: new Date().toISOString(),
           })
         } catch (error) {
-          if (error instanceof Error && error.message.includes("Daily API limit reached")) {
+          if (
+            error instanceof Error &&
+            (error.message.includes("Daily API limit reached") ||
+              error.message.includes("API keys exhausted") ||
+              error.message.includes("Rate limit") ||
+              error.message.includes("rate limit"))
+          ) {
             console.log("[v0] ⚠️ API limit reached - returning success to prevent cron failure")
             return NextResponse.json({
               success: true,
